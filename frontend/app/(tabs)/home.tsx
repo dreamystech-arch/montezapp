@@ -1,0 +1,250 @@
+import { useCallback, useEffect, useState } from "react";
+import {
+  ActivityIndicator,
+  FlatList,
+  Image,
+  RefreshControl,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { Ionicons } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
+import { useRouter } from "expo-router";
+
+import { fetchProducts } from "@/src/api";
+import type { Product } from "@/src/api/types";
+import { ProductCard } from "@/src/components/ProductCard";
+import { useApp } from "@/src/context/AppContext";
+import { registerForPushAsync } from "@/src/utils/push";
+import { colors, font, radius, shadow, spacing } from "@/src/theme";
+
+export default function HomeScreen() {
+  const router = useRouter();
+  const { cms, settings, refreshBoot, user } = useApp();
+
+  const [products, setProducts] = useState<Product[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const load = useCallback(async () => {
+    try {
+      const items = await fetchProducts();
+      setProducts(items.slice(0, 8));
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  useEffect(() => {
+    // Auto-register push after boot — anonymous user_id fallback if not logged in.
+    const anon = user?.id ?? "guest";
+    registerForPushAsync(anon);
+  }, [user?.id]);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await Promise.all([refreshBoot(), load()]);
+  }, [refreshBoot, load]);
+
+  const bannerImage =
+    cms?.homeBannerImage ??
+    "https://images.unsplash.com/photo-1587293852726-70cdb56c2866?crop=entropy&cs=srgb&fm=jpg&q=85&w=1600";
+  const bannerText = cms?.homeBannerText ?? "Verified Manufacturers • Pan-India Delivery";
+  const announcement = cms?.announcement ?? "";
+
+  return (
+    <SafeAreaView style={styles.container} edges={["top"]}>
+      <View style={styles.header}>
+        {settings?.logoUrl ? (
+          <Image source={{ uri: settings.logoUrl }} style={styles.logo} resizeMode="contain" testID="home-app-logo" />
+        ) : (
+          <Text style={styles.brand}>Montez Infobyte</Text>
+        )}
+        <TouchableOpacity
+          style={styles.searchIcon}
+          onPress={() => router.push("/(tabs)/products")}
+          testID="home-search-button"
+        >
+          <Ionicons name="search-outline" size={22} color={colors.onSurface} />
+        </TouchableOpacity>
+      </View>
+
+      <FlatList
+        data={products}
+        keyExtractor={(p) => p.id}
+        numColumns={2}
+        columnWrapperStyle={{ gap: spacing.md, paddingHorizontal: spacing.lg }}
+        contentContainerStyle={{ paddingBottom: spacing.xxxl, gap: spacing.md }}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.brand} />}
+        ListHeaderComponent={
+          <View>
+            {/* Banner */}
+            <View style={styles.bannerWrap}>
+              <Image source={{ uri: bannerImage }} style={styles.bannerImage} />
+              <LinearGradient
+                colors={["rgba(0,0,0,0)", "rgba(0,0,0,0.55)"]}
+                style={StyleSheet.absoluteFill}
+              />
+              <View style={styles.bannerText}>
+                <Text style={styles.bannerBadge}>Trusted B2B Platform</Text>
+                <Text style={styles.bannerHeadline} testID="home-banner-text">
+                  {bannerText}
+                </Text>
+                <TouchableOpacity
+                  style={styles.bannerCta}
+                  onPress={() => router.push("/(tabs)/products")}
+                  testID="home-browse-button"
+                >
+                  <Text style={styles.bannerCtaText}>Browse Products</Text>
+                  <Ionicons name="arrow-forward" size={16} color={colors.brand} />
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            {/* Announcement */}
+            {announcement ? (
+              <View style={styles.announcement} testID="home-announcement">
+                <Ionicons name="megaphone-outline" size={16} color={colors.brand} />
+                <Text style={styles.announcementText} numberOfLines={2}>
+                  {announcement}
+                </Text>
+              </View>
+            ) : null}
+
+            {/* Trust indicators */}
+            <View style={styles.stats}>
+              <StatBlock label="Cities" value="100+" />
+              <StatBlock label="Partners" value="500+" />
+              <StatBlock label="Products" value="10K+" />
+              <StatBlock label="Delivered" value="50K+" />
+            </View>
+
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>Featured Products</Text>
+              <TouchableOpacity onPress={() => router.push("/(tabs)/products")}>
+                <Text style={styles.sectionLink}>See all</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        }
+        renderItem={({ item }) => <ProductCard product={item} />}
+        ListEmptyComponent={
+          loading ? (
+            <View style={{ paddingVertical: spacing.xxxl, alignItems: "center" }}>
+              <ActivityIndicator color={colors.brand} />
+            </View>
+          ) : (
+            <View style={{ paddingVertical: spacing.xxl, alignItems: "center" }}>
+              <Text style={{ color: colors.muted }}>No featured products right now.</Text>
+            </View>
+          )
+        }
+        testID="home-featured-list"
+      />
+    </SafeAreaView>
+  );
+}
+
+function StatBlock({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={styles.stat}>
+      <Text style={styles.statValue}>{value}</Text>
+      <Text style={styles.statLabel}>{label}</Text>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: colors.surface },
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.md,
+  },
+  logo: { width: 120, height: 32 },
+  brand: { fontSize: font.xl, color: colors.brand, fontWeight: "500" },
+  searchIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: radius.pill,
+    backgroundColor: colors.surfaceSecondary,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  bannerWrap: {
+    marginHorizontal: spacing.lg,
+    borderRadius: radius.lg,
+    overflow: "hidden",
+    aspectRatio: 16 / 9,
+    backgroundColor: colors.surfaceTertiary,
+    marginBottom: spacing.lg,
+  },
+  bannerImage: { width: "100%", height: "100%" },
+  bannerText: { position: "absolute", left: 20, right: 20, bottom: 16 },
+  bannerBadge: {
+    color: "#FFFFFF",
+    fontSize: font.sm,
+    marginBottom: spacing.xs,
+    opacity: 0.85,
+  },
+  bannerHeadline: {
+    color: "#FFFFFF",
+    fontSize: font.xl,
+    fontWeight: "500",
+    lineHeight: 26,
+    marginBottom: spacing.md,
+  },
+  bannerCta: {
+    alignSelf: "flex-start",
+    backgroundColor: "#FFFFFF",
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.pill,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xs,
+  },
+  bannerCtaText: { color: colors.brand, fontWeight: "500", fontSize: font.base },
+  announcement: {
+    marginHorizontal: spacing.lg,
+    marginBottom: spacing.lg,
+    backgroundColor: colors.brandTint,
+    padding: spacing.md,
+    borderRadius: radius.md,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+  },
+  announcementText: { flex: 1, color: colors.brand, fontSize: font.base, fontWeight: "500" },
+  stats: {
+    flexDirection: "row",
+    marginHorizontal: spacing.lg,
+    marginBottom: spacing.lg,
+    backgroundColor: colors.surfaceSecondary,
+    borderRadius: radius.md,
+    paddingVertical: spacing.md,
+    ...shadow.card,
+  },
+  stat: { flex: 1, alignItems: "center" },
+  statValue: { color: colors.brand, fontSize: font.lg, fontWeight: "500" },
+  statLabel: { color: colors.muted, fontSize: font.sm, marginTop: 2 },
+  sectionHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: spacing.lg,
+    marginBottom: spacing.md,
+  },
+  sectionTitle: { color: colors.onSurface, fontSize: font.lg, fontWeight: "500" },
+  sectionLink: { color: colors.brand, fontSize: font.base, fontWeight: "500" },
+});

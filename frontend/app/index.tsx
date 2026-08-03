@@ -1,16 +1,45 @@
-import { Text, View, StyleSheet, Image } from "react-native";
+import { useEffect, useMemo } from "react";
+import { ActivityIndicator, Image, StyleSheet, Text, View } from "react-native";
+import { useRouter } from "expo-router";
 
-const EXPO_PUBLIC_BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
+import { useApp } from "@/src/context/AppContext";
+import { colors, font, spacing } from "@/src/theme";
+import { storage } from "@/src/utils/storage";
 
-export default function Index() {
-  console.log(EXPO_PUBLIC_BACKEND_URL, "EXPO_PUBLIC_BACKEND_URL");
+const WELCOME_SEEN_KEY = "montez_welcome_seen";
+
+export default function Splash() {
+  const router = useRouter();
+  const { cms, loadingBoot } = useApp();
+
+  const duration = useMemo(() => cms?.splashDurationMs ?? 1600, [cms?.splashDurationMs]);
+
+  useEffect(() => {
+    if (loadingBoot) return;
+    const t = setTimeout(async () => {
+      const seen = await storage.getItem<boolean>(WELCOME_SEEN_KEY, false);
+      router.replace(seen ? "/(tabs)/home" : "/welcome");
+    }, duration);
+    return () => clearTimeout(t);
+  }, [duration, loadingBoot, router]);
 
   return (
-    <View style={styles.container}>
-      <Image
-        source={require("../assets/images/app-image.png")}
-        style={styles.image}
-      />
+    <View style={styles.container} testID="splash-screen">
+      {cms?.splashImage ? (
+        <Image source={{ uri: cms.splashImage }} style={styles.bg} blurRadius={4} />
+      ) : null}
+      <View style={styles.overlay} />
+      <View style={styles.content}>
+        {cms?.appLogo ? (
+          <Image source={{ uri: cms.appLogo }} style={styles.logo} resizeMode="contain" testID="splash-logo" />
+        ) : (
+          <Text style={styles.brand}>Montez Infobyte</Text>
+        )}
+        <Text style={styles.tagline} testID="splash-tagline">
+          B2B Manufacturing & Procurement
+        </Text>
+        <ActivityIndicator size="small" color={colors.brand} style={{ marginTop: spacing.xl }} />
+      </View>
     </View>
   );
 }
@@ -18,13 +47,24 @@ export default function Index() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#0c0c0c",
+    backgroundColor: "#FFFFFF",
     alignItems: "center",
     justifyContent: "center",
   },
-  image: {
-    width: "100%",
-    height: "100%",
-    resizeMode: "contain",
+  bg: { ...StyleSheet.absoluteFillObject, opacity: 0.15 },
+  overlay: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(255,255,255,0.75)" },
+  content: { alignItems: "center", justifyContent: "center", padding: spacing.xl },
+  logo: { width: 200, height: 100, marginBottom: spacing.md },
+  brand: {
+    fontSize: 28,
+    color: colors.brand,
+    fontWeight: "500",
+    letterSpacing: 0.5,
+  },
+  tagline: {
+    fontSize: font.base,
+    color: colors.muted,
+    marginTop: spacing.xs,
+    textAlign: "center",
   },
 });

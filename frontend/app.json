@@ -1,24 +1,30 @@
 {
   "expo": {
-    "name": "frontend",
+    "name": "Montez Infobyte",
     "slug": "frontend",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "frontend",
-    "userInterfaceStyle": "automatic",
+    "userInterfaceStyle": "light",
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.emergent.montezmobilemirror.b8ri3q"
+      "bundleIdentifier": "com.emergent.montezmobilemirror.b8ri3q",
+      "infoPlist": {
+        "NSUserNotificationsUsageDescription": "Get product updates and quote alerts"
+      }
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
-        "backgroundColor": "#000000"
+        "backgroundColor": "#FFFFFF"
       },
       "edgeToEdgeEnabled": true,
-      "package": "com.emergent.montezmobilemirror.b8ri3q"
+      "package": "com.emergent.montezmobilemirror.b8ri3q",
+      "permissions": [
+        "POST_NOTIFICATIONS"
+      ]
     },
     "web": {
       "bundler": "metro",
@@ -33,7 +39,14 @@
           "image": "./assets/images/splash-image.png",
           "imageWidth": 200,
           "resizeMode": "contain",
-          "backgroundColor": "#000000"
+          "backgroundColor": "#FFFFFF"
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/icon.png",
+          "color": "#940A0A"
         }
       ]
     ],
