@@ -66,8 +66,25 @@ export type RFQPayload = {
   productSlug?: string;
 };
 
+export type Role = "customer" | "partner" | "admin";
+
 export type User = {
   id: string;
-  phone: string;
+  email: string;
+  name?: string;
+  phone?: string;
+  role: Role;
+  createdAt?: string;
+};
+
+export type RFQ = {
+  id: string;
+  name: string;
+  email: string;
+  phone?: string;
+  category?: string;
+  quantity: string;
+  description: string;
+  status: string;
   createdAt: string;
 };

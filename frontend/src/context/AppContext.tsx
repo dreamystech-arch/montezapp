@@ -1,10 +1,11 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 
-import { fetchMobileCMS, fetchSettings } from "@/src/api";
+import { authLogout, fetchMe, fetchMobileCMS, fetchSettings } from "@/src/api";
+import { setSessionCookie } from "@/src/api/client";
 import type { MobileCMS, SiteSettings, User } from "@/src/api/types";
 import { storage } from "@/src/utils/storage";
 
-const TOKEN_KEY = "montez_auth_token";
+const SESSION_COOKIE_KEY = "montez_session_cookie";
 const USER_KEY = "montez_auth_user";
 
 type AppContextValue = {
@@ -14,8 +15,8 @@ type AppContextValue = {
   bootError: string | null;
   refreshBoot: () => Promise<void>;
   user: User | null;
-  token: string | null;
-  signIn: (token: string, user: User) => Promise<void>;
+  refreshUser: () => Promise<User | null>;
+  setSession: (cookie: string | null, user: User | null) => Promise<void>;
   signOut: () => Promise<void>;
 };
 
@@ -27,7 +28,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [loadingBoot, setLoadingBoot] = useState(true);
   const [bootError, setBootError] = useState<string | null>(null);
   const [user, setUser] = useState<User | null>(null);
-  const [token, setToken] = useState<string | null>(null);
 
   const refreshBoot = useCallback(async () => {
     setLoadingBoot(true);
@@ -49,13 +49,48 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  const refreshUser = useCallback(async (): Promise<User | null> => {
+    try {
+      const { user: me } = await fetchMe();
+      setUser(me);
+      if (me) {
+        await storage.setItem(USER_KEY, JSON.stringify(me));
+      } else {
+        await storage.removeItem(USER_KEY);
+      }
+      return me;
+    } catch {
+      return null;
+    }
+  }, []);
+
+  const setSession = useCallback(async (cookie: string | null, nextUser: User | null) => {
+    setSessionCookie(cookie);
+    setUser(nextUser);
+    if (cookie) {
+      await storage.secureSet(SESSION_COOKIE_KEY, cookie);
+    } else {
+      await storage.secureRemove(SESSION_COOKIE_KEY);
+    }
+    if (nextUser) {
+      await storage.setItem(USER_KEY, JSON.stringify(nextUser));
+    } else {
+      await storage.removeItem(USER_KEY);
+    }
+  }, []);
+
+  const signOut = useCallback(async () => {
+    await authLogout();
+    await setSession(null, null);
+  }, [setSession]);
+
   useEffect(() => {
     (async () => {
-      const [savedToken, savedUser] = await Promise.all([
-        storage.secureGet<string>(TOKEN_KEY, ""),
+      const [savedCookie, savedUser] = await Promise.all([
+        storage.secureGet<string>(SESSION_COOKIE_KEY, ""),
         storage.getItem<string>(USER_KEY, ""),
       ]);
-      if (savedToken) setToken(savedToken);
+      if (savedCookie) setSessionCookie(savedCookie);
       if (savedUser) {
         try {
           setUser(JSON.parse(savedUser) as User);
@@ -63,27 +98,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           /* ignore */
         }
       }
-      await refreshBoot();
+      // Kick off boot + revalidate session against upstream in parallel.
+      await Promise.all([refreshBoot(), savedCookie ? refreshUser() : Promise.resolve(null)]);
     })();
-  }, [refreshBoot]);
-
-  const signIn = useCallback(async (newToken: string, newUser: User) => {
-    setToken(newToken);
-    setUser(newUser);
-    await storage.secureSet(TOKEN_KEY, newToken);
-    await storage.setItem(USER_KEY, JSON.stringify(newUser));
-  }, []);
-
-  const signOut = useCallback(async () => {
-    setToken(null);
-    setUser(null);
-    await storage.secureRemove(TOKEN_KEY);
-    await storage.removeItem(USER_KEY);
-  }, []);
+  }, [refreshBoot, refreshUser]);
 
   const value = useMemo(
-    () => ({ cms, settings, loadingBoot, bootError, refreshBoot, user, token, signIn, signOut }),
-    [cms, settings, loadingBoot, bootError, refreshBoot, user, token, signIn, signOut],
+    () => ({
+      cms,
+      settings,
+      loadingBoot,
+      bootError,
+      refreshBoot,
+      user,
+      refreshUser,
+      setSession,
+      signOut,
+    }),
+    [cms, settings, loadingBoot, bootError, refreshBoot, user, refreshUser, setSession, signOut],
   );
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

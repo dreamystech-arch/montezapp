@@ -1,0 +1,51 @@
+{
+  "summary": "Auth + 3-role dashboards feature reviewed. Backend regression: 10/10 local supplementary endpoints still pass (health, mobile CMS GET+PUT+401, mobile phone-OTP send/verify/wrong, push register, broadcast auth+success). Added new /app/backend/tests/test_upstream_auth.py — 3/3 pass validating upstream /api/auth/send-otp for admin whitelist (403 'not authorized for admin'), customer email flow, and /api/auth/verify-otp 400 'Invalid code' shape. Frontend on 390x844 mobile viewport: Account tab renders 3 role chips (testIDs role-chip-customer|partner|admin — all visible), email input + Send login code button. Invalid-email inline error 'Enter a valid email' surfaces. Admin+random email → POST send-otp fires with correct payload {email, role:'admin'} and the 403 'This email is not authorized for admin access.' backend message surfaces in the UI without crash. Customer+valid email → POST send-otp fires with role:'customer'; upstream mailer is transiently returning HTTP 500 for every request (confirmed via curl 3x) — UI correctly surfaces the backend error text 'We could not deliver the code to your email right now…' without red screen. Because the mailer is 500ing, we cannot reach the code-step end-to-end in the browser (as the review note anticipated). All OTP-step behaviour (code input, hint, change-email link, <6-digit validation, cookie capture wiring, setSession→role branching) was verified via code review of account.tsx + client.ts. Home tab regression: banner + content still render after auth refactor (Verified Manufacturers text visible). Deprecated packages detected: none new — existing shadow*/Image.resizeMode/pointerEvents deprecation warnings from iteration_1 still present (non-blocking).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "upstream POST /api/auth/send-otp", "issue": "Upstream mailer is currently returning HTTP 500 for all customer-role send-otp requests in this preview window ('We could not deliver the code to your email right now…'). This is an upstream infra issue, NOT our app. Our client surfaces it correctly. Cannot reach code-step end-to-end while upstream is 500ing."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": [
+      {"component": "StyleSheet shadows", "issue": "'shadow*' style props deprecated; migrate to boxShadow. Reference: /app/frontend/src/theme (shadow.card usage across dashboards/shared.tsx, home.tsx, etc.)"},
+      {"component": "Image", "issue": "Image style.resizeMode deprecated; use props.resizeMode. Reference: /app/frontend/app/welcome.tsx"},
+      {"component": "pointerEvents", "issue": "props.pointerEvents deprecated; use style.pointerEvents. Likely inside LinearGradient/SafeArea wrappers."}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_mobile_api.py",
+    "/app/backend/tests/test_upstream_auth.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "NONE required for auth feature — implementation is correct and defensive. Upstream mailer 500 is out of scope.",
+    "(Carried over) Migrate shadow*, Image.resizeMode, pointerEvents to their new APIs to silence RN new-arch warnings.",
+    "(Optional) Wire the Admin quick-link rows (admin-link-products/partners/customers/rfqs) to actual admin sub-screens — currently they render but have no onPress navigation.",
+    "(Optional/browser-only limitation) Note in code that /auth/verify-otp Set-Cookie cannot be captured on browser fetch (Access-Control-Allow-Origin:* + credentials:include is CORS-restricted and Set-Cookie is not exposed to JS anyway) — native RN is unaffected. Consider server-side token in JSON body if browser preview parity matters."
+  ],
+  "critical_code_review_comments": [
+    "src/api/client.ts request(): correctly gates credentials:'include' to only withAuth/captureCookie requests, avoiding the browser CORS 'Failed to fetch' regression for public GETs. Good.",
+    "src/api/client.ts parseSetCookie: handles comma-in-Expires attribute via lookahead — correct heuristic.",
+    "app/(tabs)/account.tsx: sends the correct upstream payload {email, role} for send-otp and {email, otp} for verify-otp; branches to Admin/Partner/CustomerDashboard on user.role after setSession. Solid.",
+    "AppContext.setSession persists cookie into secure storage and user into normal storage; boot re-hydrates and revalidates via fetchMe. Good.",
+    "AdminDashboard quick-link rows have no onPress handlers (rendered but non-navigable). Not a bug per spec (spec says 'quick links'), but leaves dead taps for admin users.",
+    "PartnerDashboard revenue chip formats as '₹{revenue}' regardless of numeric type — if upstream returns a currency string like '₹12,000' this could double-prefix. Consider guarding.",
+    "CustomerDashboard InfoRow value: uses user.role lowercased; ProfileCard already shows uppercase role pill — minor style inconsistency, not a bug.",
+    "shared.tsx StatCard uses minWidth:'45%' inside flex-row with gap — visually creates 2x2 grid but on very narrow screens could wrap to 1 column. Acceptable.",
+    "server.py unchanged from iteration_1 review; still no unused imports beyond `random` which was already removed."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_upstream_auth.py (new)",
+    "/app/test_reports/iteration_2.json (this file)"
+  ],
+  "success_rate": {"backend": "100% (13/13 pytest)", "frontend": "100% for reachable paths; verify-otp code-step could not be reached in-browser due to upstream mailer 500 (out of scope)"},
+  "seed_data_creation": "Upstream: none (real auth system; only send-otp attempts made to random emails). Local: prior TEST_ CMS override from iteration_1 still present in Mongo; no new writes.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Auth uses upstream https://enterprise-supply-1.emergent.host. send-otp expects {email, role}; verify-otp expects {email, otp} and sets a Set-Cookie session cookie captured by src/api/client.ts request() when {captureCookie:true}. Withauth requests forward Cookie header. Admin whitelist enforced upstream (403). Preview mailer is unreliable (500s frequently) so code-step end-to-end may be unreachable in browser — do NOT treat that as an app bug; verify UI surfaces the backend error message. Native RN build has no cookie/CORS limitations. Local supplementary backend (mobile CMS, mobile phone-OTP, push) is independent and healthy.",
+  "rca_of_issue": "N/A — no bugs. Only environmental note: upstream mailer 500 blocks browser end-to-end verify test; UI handles it correctly."
+}
