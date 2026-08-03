@@ -80,12 +80,19 @@ function DashboardPage({ user }: { user: User }) {
     orders.state.status === "ready"
       ? orders.state.data.filter((o: any) => (o.status ?? "").toLowerCase() !== "completed").length
       : "—";
-  const revenue =
-    (analytics.state.status === "ready" &&
-      (analytics.state.data?.totalRevenue ??
-        analytics.state.data?.revenue ??
-        summary.state.status === "ready" ? summary.state.data?.revenue : undefined)) ||
-    "—";
+
+  // Revenue precedence: analytics.totalRevenue → analytics.revenue → summary.revenue.
+  let revenue: string | number = "—";
+  if (analytics.state.status === "ready") {
+    const a: any = analytics.state.data ?? {};
+    if (a.totalRevenue != null) revenue = a.totalRevenue;
+    else if (a.revenue != null) revenue = a.revenue;
+  }
+  if (revenue === "—" && summary.state.status === "ready") {
+    const s: any = summary.state.data ?? {};
+    if (s.revenue != null) revenue = s.revenue;
+  }
+
   const rating =
     analytics.state.status === "ready"
       ? analytics.state.data?.rating ?? analytics.state.data?.avgRating ?? "—"
@@ -151,7 +158,17 @@ function ProfilePage({ user }: { user: User }) {
           { label: "GSTIN", value: p?.gstin ?? null },
           { label: "Factory", value: p?.factory?.name ?? p?.factoryName ?? null },
           { label: "City", value: p?.city ?? p?.address?.city ?? null },
-          { label: "Verification", value: p?.verificationStatus ?? p?.verified === true ? "Verified" : (p?.verified === false ? "Pending" : null) },
+          {
+            label: "Verification",
+            value:
+              p?.verificationStatus != null && p?.verificationStatus !== ""
+                ? String(p.verificationStatus)
+                : p?.verified === true
+                ? "Verified"
+                : p?.verified === false
+                ? "Pending"
+                : null,
+          },
         ]}
       />
       {state.status === "loading" ? <LoadingBlock /> : null}
