@@ -1,0 +1,206 @@
+{
+  "app_name": "Montez Infobyte",
+  "personality": "1 iOS-Native Clean",
+  "personality_one_liner": "A highly readable, function-first B2B interface where products and trust indicators take center stage against a crisp, high-contrast white and deep maroon canvas.",
+  "color": {
+    "surface": "#FFFFFF",
+    "onSurface": "#111827",
+    "surfaceSecondary": "#F8F9FA",
+    "onSurfaceSecondary": "#374151",
+    "surfaceTertiary": "#F3F4F6",
+    "onSurfaceTertiary": "#4B5563",
+    "surfaceInverse": "#1F2937",
+    "onSurfaceInverse": "#FFFFFF",
+    "brand": "#940A0A",
+    "brandPrimary": "#940A0A",
+    "onBrandPrimary": "#FFFFFF",
+    "brandSecondary": "#7A0808",
+    "onBrandSecondary": "#FFFFFF",
+    "brandTertiary": "#FDE8E8",
+    "onBrandTertiary": "#940A0A",
+    "success": "#059669",
+    "onSuccess": "#FFFFFF",
+    "warning": "#D97706",
+    "onWarning": "#FFFFFF",
+    "error": "#DC2626",
+    "onError": "#FFFFFF",
+    "info": "#2563EB",
+    "onInfo": "#FFFFFF",
+    "border": "#E5E7EB",
+    "borderStrong": "#D1D5DB",
+    "divider": "#F3F4F6"
+  },
+  "typography": {
+    "displayFontFamily": "Plus Jakarta Sans",
+    "textFontFamily": "Plus Jakarta Sans",
+    "scale": {
+      "sm": 12,
+      "base": 14,
+      "lg": 16,
+      "xl": 20,
+      "2xl": 24
+    }
+  },
+  "spacing": {
+    "rule": "Maintain crisp iOS-native breathing room. Use 'md' or 'lg' between sections. Avoid dense clustering.",
+    "xs": 4,
+    "sm": 8,
+    "md": 12,
+    "lg": 16,
+    "xl": 24,
+    "2xl": 32,
+    "3xl": 48
+  },
+  "radius_tokens": {
+    "sm": 6,
+    "md": 12,
+    "lg": 20,
+    "pill": 999
+  },
+  "shadow_tier": "1",
+  "navigation": "bottom_tabs",
+  "icon_set": "Ionicons",
+  "glassmorphism": {
+    "enabled": "true",
+    "do's": [
+      "Use subtle glass effect on sticky top headers when content scrolls behind",
+      "Use frosted glass on the bottom tab bar",
+      "Apply frosted overlays on hero banners to make text readable"
+    ],
+    "dont's": [
+      "Never use glass on product cards or list items",
+      "Never apply blur over form inputs"
+    ]
+  },
+  "platform_libraries": {
+    "glass": {
+      "ios": "expo-glass-effect",
+      "android": "expo-blur",
+      "low_end_android_fallback": "solid surfaceSecondary"
+    },
+    "image": "expo-image",
+    "blur": "expo-blur",
+    "bottom_sheet": "@gorhom/bottom-sheet",
+    "animation": "react-native-reanimated",
+    "gesture": "react-native-gesture-handler"
+  },
+  "screens": [
+    {
+      "name": "Splash",
+      "purpose": "A momentary branding check that builds trust.",
+      "states": {
+        "loading": "Brand logo centered on screen",
+        "empty": "N/A",
+        "error": "N/A"
+      },
+      "layout": "Full-screen surface. Center the Montez Infobyte logo (or bold typography wordmark). Subtle loading indicator at bottom."
+    },
+    {
+      "name": "Welcome",
+      "purpose": "Onboarding screen highlighting B2B capabilities.",
+      "states": {
+        "loading": "Skeleton of image and text",
+        "empty": "N/A",
+        "error": "N/A"
+      },
+      "layout": "Full-bleed background image with vertical gradient scrim (transparent to #1F2937). Large white heading and subtext positioned in the bottom 40%. Prominent sticky primary CTA at safe-area bottom."
+    },
+    {
+      "name": "Home",
+      "purpose": "The main dashboard showing catalog breadth, featured products, and trust indicators.",
+      "states": {
+        "loading": "Skeleton carousel and skeleton product grids",
+        "empty": "N/A",
+        "error": "Toast indicating connection error + retry button"
+      },
+      "layout": "Top sticky search bar (glass background). Content: 1. Hero banner carousel (Image + gradient scrim + text overlay). 2. Announcements row (brandTertiary surface). 3. Horizontal scrolling category chips. 4. Featured products grid (2-column). 5. Trust indicators block (verified partners, cities served)."
+    },
+    {
+      "name": "Products",
+      "purpose": "The core product catalog and discovery flow.",
+      "states": {
+        "loading": "Skeleton grid",
+        "empty": "Illustration of an empty box + 'No products found' + 'Clear Filters' CTA",
+        "error": "Error icon + 'Failed to load catalog' + 'Retry' CTA"
+      },
+      "layout": "Sticky header with search input. Below it, a sticky horizontal list of category chips (Apparel, Corporate Gifts, Packaging). Main content is a 2-column grid of product cards. Product card: Image (top), Title (truncate 2 lines), Category label (sm, gray), MOQ, and Unit Price."
+    },
+    {
+      "name": "ProductDetail",
+      "purpose": "Deep dive into a specific SKU with a prominent RFQ action.",
+      "states": {
+        "loading": "Skeleton image and text blocks",
+        "empty": "N/A",
+        "error": "Error icon + 'Failed to load product' + 'Retry' CTA"
+      },
+      "layout": "Scrollable View. Top: Image gallery slider. Middle: Product Title, MOQ, Price, Category. Bottom: Description and Specifications. STICKY FOOTER: A fixed container at the bottom with a full-width 'Request Quote' (brandPrimary) button."
+    },
+    {
+      "name": "RFQ",
+      "purpose": "Multi-field form for businesses to submit complex quote requests.",
+      "states": {
+        "loading": "Spinner during submission",
+        "empty": "N/A",
+        "error": "Inline field errors (red borders + small error text)"
+      },
+      "layout": "KeyboardAvoidingView containing a single-column form. Fields: Name, Email, Phone, Product Category (Dropdown/ActionSheet), Quantity, Description/Specs. Sticky submit CTA at the bottom."
+    },
+    {
+      "name": "Contact",
+      "purpose": "Easy access to dedicated account managers and support.",
+      "states": {
+        "loading": "Skeleton list",
+        "empty": "N/A",
+        "error": "N/A"
+      },
+      "layout": "List of communication channels as cards (Phone, Email, WhatsApp, Office Address). Each card uses surfaceSecondary with a leading brand-tinted icon and trailing chevron."
+    },
+    {
+      "name": "Account",
+      "purpose": "B2B buyer profile and order tracking.",
+      "states": {
+        "loading": "Spinner",
+        "empty": "Logged out state: OTP Login form",
+        "error": "Toast error for login failure"
+      },
+      "layout": "If logged out: Clean OTP login flow (Phone input -> OTP input -> Verify). If logged in: Profile header (Initials avatar), followed by a list of options (My Quotes, Orders, Saved Addresses, Logout)."
+    }
+  ],
+  "images": {
+    "hero_banner_1": {
+      "url": "https://images.unsplash.com/photo-1587293852726-70cdb56c2866?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA2ODl8MHwxfHNlYXJjaHwxfHxCMkIlMjBsb2dpc3RpY3MlMjB3YXJlaG91c2UlMjBtYW51ZmFjdHVyaW5nfGVufDB8fHx8MTc4NTcyNzQyNnww&ixlib=rb-4.1.0&q=85",
+      "alt": "B2B warehouse and logistics racks"
+    },
+    "hero_banner_2": {
+      "url": "https://images.unsplash.com/photo-1764185800646-f75f7e16e465?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1ODh8MHwxfHNlYXJjaHwxfHxmYWN0b3J5JTIwbWFudWZhY3R1cmluZyUyMGluZGlhfGVufDB8fHx8MTc4NTcyNzQyNnww&ixlib=rb-4.1.0&q=85",
+      "alt": "Factory manufacturing India"
+    },
+    "product_polo": {
+      "url": "https://images.unsplash.com/photo-1625910513399-c9fcba54338c?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzMjV8MHwxfHNlYXJjaHwyfHxtZW4lMjBwb2xvJTIwdC1zaGlydCUyMGFwcGFyZWx8ZW58MHx8fHwxNzg1NzI3NDI2fDA&ixlib=rb-4.1.0&q=85",
+      "alt": "Men's Polo T-Shirt"
+    },
+    "product_tech": {
+      "url": "https://images.pexels.com/photos/25809234/pexels-photo-25809234.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+      "alt": "Corporate tech gifts and accessories"
+    },
+    "product_packaging": {
+      "url": "https://images.unsplash.com/photo-1700165644892-3dd6b67b25bc?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1ODF8MHwxfHNlYXJjaHwxfHxjdXN0b20lMjBtYWlsZXIlMjBib3hlcyUyMHBhY2thZ2luZ3xlbnwwfHx8fDE3ODU3Mjc0MjZ8MA&ixlib=rb-4.1.0&q=85",
+      "alt": "Custom mailer boxes"
+    }
+  },
+  "haptics": {
+    "tab_press": "light",
+    "button_press": "medium",
+    "add_to_cart": "success",
+    "rfq_submit": "success"
+  },
+  "instructions_to_main_agent": [
+    "Strictly adhere to the #940a0a (maroon) brand color for primary actions, active tab states, and key visual accents. NEVER use blue, purple, or indigo anywhere.",
+    "Implement 5 bottom tabs: Home, Products, RFQ, Contact, Account.",
+    "B2B e-commerce relies heavily on details. Ensure product cards in the grid display Image, Title, Category, MOQ, and Price. Keep typography clean and readable.",
+    "Use 'Plus Jakarta Sans' as the main typography. Rely on font-size for hierarchy, with a maximum font weight of 500.",
+    "For the RFQ form, utilize a sticky submit button wrapped in a KeyboardAvoidingView to ensure the user never loses the primary action while scrolling.",
+    "Include a horizontal scrolling chip list for categories (Apparel, Corporate Gifts, Packaging, etc.) on the Products and Home screens.",
+    "Any text overlaid on hero images MUST include a vertical linear-gradient scrim (Layer 1) below the text (Layer 2) to guarantee WCAG contrast."
+  ]
+}
