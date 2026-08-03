@@ -1,0 +1,40 @@
+{
+  "summary": "CMS live-refresh bug fix VERIFIED end-to-end on mobile preview (390x844). Backend: 10/10 pytest passing (test_mobile_api.py). Frontend live test: baseline announcement 'TEST_announcement_1785751808' and banner 'Verified Manufacturers • Transparent Pricing • Pan-India Delivery' rendered on Home. Issued curl PUT http://localhost:8001/api/mobile/cms with X-Admin-Token: montez-admin-2026 setting announcement='LIVE_REFRESH_<epoch>' and homeBannerText='LIVE_BANNER_<epoch>'. Navigated Home → Products → Home; useFocusEffect triggered refreshCMS() and within ~2s the announcement pill (testID home-announcement) and banner headline (testID home-banner-text) both updated to the new values without any app reload. Regression checks pass: (a) git status confirms ONLY frontend/app/(tabs)/home.tsx and frontend/src/context/AppContext.tsx modified — account.tsx untouched; (b) Products tab renders 10 items with normalised media URLs (previous fix intact); (c) Home shows 8 featured product cards; (d) FlatList testID home-featured-list present with RefreshControl bound to onRefresh→refreshBoot (which itself re-fetches CMS + settings, so pull-to-refresh regression path also works). AppState listener code inspection: correct — fires refreshCMS on background→active transition using appStateRef.current. Deprecated packages detected: none new — shadow*, Image.resizeMode, pointerEvents warnings are pre-existing (carried over from iterations 1-3).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": [
+      {"component": "StyleSheet shadows", "issue": "'shadow*' style props deprecated; migrate to boxShadow. Reference: /app/frontend/src/theme (shadow.card used in home.tsx, ProductCard.tsx). Carried over from prior iterations — unrelated to this fix."},
+      {"component": "Image", "issue": "Image style.resizeMode deprecated; use props.resizeMode. Reference: /app/frontend/app/welcome.tsx. Carried over."},
+      {"component": "pointerEvents", "issue": "props.pointerEvents deprecated; use style.pointerEvents. Likely LinearGradient/SafeArea wrapper. Carried over."}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_mobile_api.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "NONE — CMS live-refresh fix is verified and production-ready. Ship it.",
+    "(Carried over, not blocking) Migrate shadow*, Image.resizeMode, props.pointerEvents to new APIs to silence RN new-arch warnings."
+  ],
+  "critical_code_review_comments": [
+    "AppContext.refreshCMS: correctly implemented as a lightweight side-effect-only fetcher using Promise.allSettled so a settings-endpoint failure never blocks CMS updates and vice versa. Silent catch is appropriate for a background/focus refresh — surfacing an error toast on tab-focus would be a bad UX.",
+    "AppState listener uses a ref (appStateRef) to compare previous state, which correctly avoids the stale-closure trap that a plain useState would introduce. Effect cleanup calls sub.remove() so no leak. Dependency array correctly includes refreshCMS (memoised via useCallback with [] deps, so stable).",
+    "home.tsx useFocusEffect(useCallback(() => refreshCMS(), [refreshCMS])): correct expo-router pattern. Note that useFocusEffect runs the callback on every focus and can optionally return a cleanup — none needed here since refreshCMS is fire-and-forget.",
+    "onRefresh (pull-to-refresh) calls refreshBoot which itself re-fetches CMS + settings, so PTR remains a superset of the focus refresh — no regression.",
+    "Scope discipline confirmed via `git status`: only home.tsx and AppContext.tsx modified. account.tsx, login/logout flows, dashboard, and other tabs are untouched — matches the ‘DO NOT CHANGE’ regression constraint exactly.",
+    "Minor: refreshCMS is fired on every Home-tab focus which will produce a network request every time the user switches tabs. For a small CMS payload this is fine, but consider a short (e.g. 5s) throttle if the app grows more chatty. Not blocking."
+  ],
+  "updated_files": ["/app/test_reports/iteration_4.json"],
+  "success_rate": {
+    "backend": "100% — 10/10 pytest passing on /api/mobile/cms (GET default, PUT 401 without token, PUT+GET round-trip), OTP send/verify, push register, notifications broadcast.",
+    "frontend": "100% — CMS refresh reflects in <3s after tab-switch; both testID home-banner-text and testID home-announcement update live. All regression tabs (Products, Home) render correctly."
+  },
+  "seed_data_creation": "Ephemeral: PUT-set LIVE_REFRESH_<epoch>/LIVE_BANNER_<epoch> during test, then restored baseline announcement/homeBannerText via a second PUT. No persistent test data left behind.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "CMS live-refresh path is: (mobile) HomeScreen.useFocusEffect → AppContext.refreshCMS → GET /api/mobile/cms + GET /api/settings via Promise.allSettled → setState → Home re-renders. Additionally, AppState 'active' transitions fire the same refreshCMS. Pull-to-refresh on Home calls refreshBoot which is a super-set (also updates loading/error state). To simulate admin edits in preview, PUT http://localhost:8001/api/mobile/cms with header X-Admin-Token: montez-admin-2026 and JSON body containing any of {splashImage, appLogo, welcomeHeading, welcomeSubtext, welcomeImage, homeBannerImage, homeBannerText, announcement}. Baseline values are restored after each test to keep the preview clean.",
+  "rca_of_issue": "ROOT CAUSE: CMS was fetched only once at app boot inside AppContext.refreshBoot() (invoked from the initial useEffect). After boot the state stayed frozen, so admin edits made in the website CMS never reached the app until a full reload. MITIGATION (implemented by main agent, verified here): (1) Added AppContext.refreshCMS() — a lightweight side-effect fetch that hits /api/mobile/cms + /api/settings on every call and does NOT toggle loadingBoot. (2) Registered an AppState listener that calls refreshCMS() on background→active transitions (returning to foreground after admin edits). (3) HomeScreen wraps refreshCMS() in useFocusEffect so tab-switch back to Home always fetches fresh CMS. VERIFICATION: Live browser test on 390x844 preview — updated announcement + banner values appeared within 2s of returning to Home tab, no reload, no cached state."
+}

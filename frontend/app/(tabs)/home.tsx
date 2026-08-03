@@ -12,7 +12,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
-import { useRouter } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 
 import { fetchProducts } from "@/src/api";
 import type { Product } from "@/src/api/types";
@@ -23,7 +23,7 @@ import { colors, font, radius, shadow, spacing } from "@/src/theme";
 
 export default function HomeScreen() {
   const router = useRouter();
-  const { cms, settings, refreshBoot, user } = useApp();
+  const { cms, settings, refreshBoot, refreshCMS, user } = useApp();
 
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
@@ -43,8 +43,15 @@ export default function HomeScreen() {
     load();
   }, [load]);
 
+  // Re-fetch CMS + settings every time Home comes into focus so admin edits
+  // (banner, announcement, logo, welcome content) reflect without a restart.
+  useFocusEffect(
+    useCallback(() => {
+      refreshCMS();
+    }, [refreshCMS]),
+  );
+
   useEffect(() => {
-    // Auto-register push after boot — anonymous user_id fallback if not logged in.
     const anon = user?.id ?? "guest";
     registerForPushAsync(anon);
   }, [user?.id]);

@@ -1,4 +1,5 @@
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { AppState, AppStateStatus } from "react-native";
 
 import { authLogout, fetchMe, fetchMobileCMS, fetchSettings } from "@/src/api";
 import { setSessionCookie } from "@/src/api/client";
@@ -14,6 +15,7 @@ type AppContextValue = {
   loadingBoot: boolean;
   bootError: string | null;
   refreshBoot: () => Promise<void>;
+  refreshCMS: () => Promise<void>;
   user: User | null;
   refreshUser: () => Promise<User | null>;
   setSession: (cookie: string | null, user: User | null) => Promise<void>;
@@ -28,6 +30,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [loadingBoot, setLoadingBoot] = useState(true);
   const [bootError, setBootError] = useState<string | null>(null);
   const [user, setUser] = useState<User | null>(null);
+
+  // Lightweight CMS-only refresh. Fetches on every call so admin edits reflect
+  // immediately when the user comes back to a screen or foregrounds the app.
+  const refreshCMS = useCallback(async () => {
+    try {
+      const [cmsRes, settingsRes] = await Promise.allSettled([
+        fetchMobileCMS(),
+        fetchSettings(),
+      ]);
+      if (cmsRes.status === "fulfilled") setCms(cmsRes.value);
+      if (settingsRes.status === "fulfilled") setSettings(settingsRes.value);
+    } catch {
+      /* silent — background refresh should never surface errors */
+    }
+  }, []);
 
   const refreshBoot = useCallback(async () => {
     setLoadingBoot(true);
@@ -98,10 +115,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           /* ignore */
         }
       }
-      // Kick off boot + revalidate session against upstream in parallel.
       await Promise.all([refreshBoot(), savedCookie ? refreshUser() : Promise.resolve(null)]);
     })();
   }, [refreshBoot, refreshUser]);
+
+  // Auto-refresh CMS + settings when the app returns to the foreground so
+  // admin edits made while the app was backgrounded show up on next view.
+  const appStateRef = useRef<AppStateStatus>(AppState.currentState);
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (nextState) => {
+      const prev = appStateRef.current;
+      appStateRef.current = nextState;
+      if (prev.match(/inactive|background/) && nextState === "active") {
+        refreshCMS();
+      }
+    });
+    return () => sub.remove();
+  }, [refreshCMS]);
 
   const value = useMemo(
     () => ({
@@ -110,12 +140,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       loadingBoot,
       bootError,
       refreshBoot,
+      refreshCMS,
       user,
       refreshUser,
       setSession,
       signOut,
     }),
-    [cms, settings, loadingBoot, bootError, refreshBoot, user, refreshUser, setSession, signOut],
+    [cms, settings, loadingBoot, bootError, refreshBoot, refreshCMS, user, refreshUser, setSession, signOut],
   );
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
