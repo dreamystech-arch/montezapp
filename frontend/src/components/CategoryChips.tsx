@@ -28,6 +28,7 @@ export function CategoryChips({ categories, selected, onSelect }: Props) {
             style={[styles.chip, active && styles.chipActive]}
             activeOpacity={0.85}
             testID={`chip-${c.slug}`}
+            accessibilityLabel={`category-chip-${c.slug}`}
           >
             <Text style={[styles.chipText, active && styles.chipTextActive]} numberOfLines={1}>
               {c.name}
