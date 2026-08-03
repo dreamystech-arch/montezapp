@@ -1,174 +1,352 @@
-import { useCallback, useEffect, useState } from "react";
-import { RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useCallback, useState } from "react";
+import { StyleSheet, View } from "react-native";
 
-import { fetchMyRFQs, fetchMySummary, fetchPartnerAnalytics, fetchPartnerOrders } from "@/src/api";
-import type { RFQ, User } from "@/src/api/types";
 import {
-  DashboardHeader,
+  fetchMyProfile,
+  fetchMyRFQs,
+  fetchMySummary,
+  fetchPartnerAnalytics,
+  fetchPartnerInventory,
+  fetchPartnerOrders,
+  fetchPartnerPayments,
+} from "@/src/api";
+import type { User } from "@/src/api/types";
+import {
+  ComingSoonPanel,
+  DashboardPageScroll,
+  DashboardShell,
+  EmptyPanel,
+  ErrorPanel,
+  GenericListCard,
+  InfoCard,
   LoadingBlock,
+  MenuItem,
   ProfileCard,
-  QuickLinkRow,
   SectionTitle,
   StatCard,
+  useAsyncData,
 } from "@/src/components/dashboards/shared";
-import { colors, font, radius, spacing } from "@/src/theme";
+import { spacing } from "@/src/theme";
 
-export function PartnerDashboard({
-  user,
-  onLogout,
-}: {
-  user: User;
-  onLogout: () => void;
-}) {
-  const [orders, setOrders] = useState<any[]>([]);
-  const [analytics, setAnalytics] = useState<any | null>(null);
-  const [summary, setSummary] = useState<any | null>(null);
-  const [rfqs, setRfqs] = useState<RFQ[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
+type Page = "dashboard" | "profile" | "orders" | "payments" | "inventory" | "analytics";
 
-  const load = useCallback(async () => {
-    try {
-      const [orderRes, anaRes, sumRes, rfqRes] = await Promise.allSettled([
-        fetchPartnerOrders(),
-        fetchPartnerAnalytics(),
-        fetchMySummary(),
-        fetchMyRFQs(),
-      ]);
-      if (orderRes.status === "fulfilled") setOrders(orderRes.value);
-      if (anaRes.status === "fulfilled") setAnalytics(anaRes.value);
-      if (sumRes.status === "fulfilled") setSummary(sumRes.value);
-      if (rfqRes.status === "fulfilled") setRfqs(rfqRes.value);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, []);
+const MENU: MenuItem<Page>[] = [
+  { key: "dashboard", label: "Dashboard", icon: "speedometer-outline" },
+  { key: "profile", label: "Profile", icon: "person-outline" },
+  { key: "orders", label: "Purchase Orders", icon: "receipt-outline" },
+  { key: "payments", label: "Payment History", icon: "cash-outline" },
+  { key: "inventory", label: "Inventory", icon: "cube-outline" },
+  { key: "analytics", label: "Analytics", icon: "stats-chart-outline" },
+];
 
-  useEffect(() => {
-    load();
-  }, [load]);
+export function PartnerDashboard({ user, onLogout }: { user: User; onLogout: () => void }) {
+  const [page, setPage] = useState<Page>("dashboard");
 
-  const onRefresh = () => {
-    setRefreshing(true);
-    load();
+  return (
+    <DashboardShell
+      user={user}
+      title="Partner Dashboard"
+      menu={MENU}
+      active={page}
+      onSelect={setPage}
+      onLogout={onLogout}
+    >
+      {page === "dashboard" ? <DashboardPage user={user} /> : null}
+      {page === "profile" ? <ProfilePage user={user} /> : null}
+      {page === "orders" ? <OrdersPage /> : null}
+      {page === "payments" ? <PaymentsPage /> : null}
+      {page === "inventory" ? <InventoryPage /> : null}
+      {page === "analytics" ? <AnalyticsPage /> : null}
+    </DashboardShell>
+  );
+}
+
+function DashboardPage({ user }: { user: User }) {
+  const analyticsLoader = useCallback(() => fetchPartnerAnalytics(), []);
+  const ordersLoader = useCallback(() => fetchPartnerOrders(), []);
+  const summaryLoader = useCallback(() => fetchMySummary(), []);
+  const analytics = useAsyncData<any>(analyticsLoader);
+  const orders = useAsyncData<any[]>(ordersLoader);
+  const summary = useAsyncData<any>(summaryLoader);
+
+  const refresh = () => {
+    analytics.refresh();
+    orders.refresh();
+    summary.refresh();
   };
 
-  const ordersCount = orders.length;
-  const activeCount = orders.filter((o: any) => (o.status ?? "").toLowerCase() !== "completed").length;
-  const rfqsCount = rfqs.length;
-  const revenue = analytics?.totalRevenue ?? analytics?.revenue ?? summary?.revenue;
+  const ordersCount = orders.state.status === "ready" ? orders.state.data.length : "—";
+  const active =
+    orders.state.status === "ready"
+      ? orders.state.data.filter((o: any) => (o.status ?? "").toLowerCase() !== "completed").length
+      : "—";
+  const revenue =
+    (analytics.state.status === "ready" &&
+      (analytics.state.data?.totalRevenue ??
+        analytics.state.data?.revenue ??
+        summary.state.status === "ready" ? summary.state.data?.revenue : undefined)) ||
+    "—";
+  const rating =
+    analytics.state.status === "ready"
+      ? analytics.state.data?.rating ?? analytics.state.data?.avgRating ?? "—"
+      : "—";
 
   return (
-    <ScrollView
-      style={{ flex: 1, backgroundColor: colors.surface }}
-      contentContainerStyle={{ paddingBottom: spacing.xxxl }}
-      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.brand} />}
-      testID="partner-dashboard"
+    <DashboardPageScroll
+      onRefresh={refresh}
+      refreshing={analytics.refreshing || orders.refreshing || summary.refreshing}
+      testID="partner-page-dashboard"
     >
-      <DashboardHeader title="Partner Dashboard" subtitle="Manage your orders & RFQs" onLogout={onLogout} />
       <ProfileCard user={user} />
-
       <SectionTitle>Overview</SectionTitle>
       <View style={styles.statGrid}>
-        <StatCard icon="cube-outline" label="Assigned Orders" value={ordersCount} testID="partner-stat-orders" />
-        <StatCard icon="time-outline" label="Active" value={activeCount} testID="partner-stat-active" />
-        <StatCard icon="document-text-outline" label="My RFQs" value={rfqsCount} testID="partner-stat-rfqs" />
-        <StatCard
-          icon="cash-outline"
-          label="Revenue"
-          value={revenue != null ? `₹${revenue}` : "—"}
-          testID="partner-stat-revenue"
-        />
+        <StatCard icon="receipt-outline" label="Purchase Orders" value={ordersCount as any} testID="partner-stat-orders" />
+        <StatCard icon="time-outline" label="Active" value={active as any} testID="partner-stat-active" />
+        <StatCard icon="cash-outline" label="Revenue" value={revenue === "—" ? "—" : `₹${revenue}`} testID="partner-stat-revenue" />
+        <StatCard icon="star-outline" label="Rating" value={rating as any} testID="partner-stat-rating" />
       </View>
 
-      <SectionTitle testID="partner-orders-title">Assigned Products / Orders</SectionTitle>
-      {loading ? (
-        <LoadingBlock label="Loading orders…" />
-      ) : orders.length === 0 ? (
-        <View style={styles.emptyCard} testID="partner-orders-empty">
-          <Text style={styles.emptyText}>No orders assigned to your account yet.</Text>
-        </View>
-      ) : (
-        <View style={{ paddingHorizontal: spacing.lg }}>
-          {orders.slice(0, 20).map((o: any, i: number) => (
-            <View key={o.id ?? i} style={styles.itemCard} testID={`partner-order-${o.id ?? i}`}>
-              <Text style={styles.itemTitle} numberOfLines={2}>
-                {o.productName ?? o.name ?? o.title ?? `Order #${(o.id ?? "").slice?.(0, 8) ?? i + 1}`}
-              </Text>
-              <View style={styles.itemMetaRow}>
-                {o.quantity != null ? (
-                  <MetaChip label="Qty" value={String(o.quantity)} />
-                ) : null}
-                {o.status ? <MetaChip label="Status" value={o.status} /> : null}
-                {o.customer ? (
-                  <MetaChip label="Customer" value={typeof o.customer === "string" ? o.customer : o.customer?.email ?? "—"} />
-                ) : null}
-              </View>
-            </View>
-          ))}
-        </View>
-      )}
-
-      <SectionTitle testID="partner-rfqs-title">My RFQs</SectionTitle>
-      {loading ? (
+      <SectionTitle>Recent orders</SectionTitle>
+      {orders.state.status === "loading" ? (
         <LoadingBlock />
-      ) : rfqs.length === 0 ? (
-        <View style={styles.emptyCard} testID="partner-rfqs-empty">
-          <Text style={styles.emptyText}>You haven&apos;t submitted or received any RFQs yet.</Text>
-        </View>
+      ) : orders.state.status === "error" ? (
+        <ErrorPanel error={orders.state.error} onRetry={orders.refresh} testID="partner-dashboard-orders-error" />
+      ) : orders.state.data.length === 0 ? (
+        <EmptyPanel icon="receipt-outline" title="No purchase orders yet" hint="Approved RFQs become POs and appear here." testID="partner-dashboard-orders-empty" />
       ) : (
-        <View style={{ paddingHorizontal: spacing.lg }}>
-          {rfqs.slice(0, 10).map((r) => (
-            <View key={r.id} style={styles.itemCard} testID={`partner-rfq-${r.id}`}>
-              <Text style={styles.itemTitle}>{(r.category ?? "General").replace(/-/g, " ")}</Text>
-              <View style={styles.itemMetaRow}>
-                <MetaChip label="Qty" value={r.quantity} />
-                <MetaChip label="Status" value={r.status} />
-              </View>
-              <Text style={styles.itemDesc} numberOfLines={2}>
-                {r.description}
-              </Text>
-            </View>
-          ))}
-        </View>
+        orders.state.data.slice(0, 5).map((o: any, i: number) => (
+          <GenericListCard
+            key={o.id ?? i}
+            title={o.productName ?? o.title ?? o.name ?? `Order #${(o.id ?? "").slice?.(0, 8) ?? i + 1}`}
+            subtitle={o.notes ?? o.description}
+            status={o.status}
+            meta={[
+              o.quantity != null ? { label: "Qty", value: String(o.quantity) } : undefined,
+              o.total != null ? { label: "Total", value: `₹${o.total}` } : undefined,
+            ].filter((m): m is { label: string; value: string } => !!m)}
+            testID={`partner-dashboard-order-${o.id ?? i}`}
+          />
+        ))
       )}
-
-      <SectionTitle>Account</SectionTitle>
-      <View style={styles.card}>
-        <InfoRow label="Email" value={user.email} />
-        <InfoRow label="Role" value={user.role} />
-        {user.name ? <InfoRow label="Name" value={user.name} /> : null}
-        {user.phone ? <InfoRow label="Phone" value={user.phone} /> : null}
-      </View>
-
-      <View style={{ paddingHorizontal: spacing.lg, marginTop: spacing.md }}>
-        <QuickLinkRow icon="log-out-outline" label="Logout" onPress={onLogout} testID="partner-logout-row" />
-      </View>
-    </ScrollView>
+    </DashboardPageScroll>
   );
 }
 
-function InfoRow({ label, value }: { label: string; value: string }) {
+function ProfilePage({ user }: { user: User }) {
+  const loader = useCallback(() => fetchMyProfile(), []);
+  const { state, refresh, refreshing } = useAsyncData<any>(loader);
+  const p = state.status === "ready" ? state.data : null;
+
   return (
-    <View style={styles.infoRow}>
-      <Text style={styles.infoLabel}>{label}</Text>
-      <Text style={styles.infoValue} numberOfLines={2}>
-        {value}
-      </Text>
-    </View>
+    <DashboardPageScroll onRefresh={refresh} refreshing={refreshing} testID="partner-page-profile">
+      <ProfileCard user={user} />
+      <SectionTitle>Business details</SectionTitle>
+      <InfoCard
+        testID="partner-profile-info"
+        rows={[
+          { label: "Name", value: p?.name ?? user.name ?? null },
+          { label: "Email", value: p?.email ?? user.email },
+          { label: "Phone", value: p?.phone ?? user.phone ?? null },
+          { label: "Company", value: p?.companyName ?? p?.company ?? null },
+          { label: "GSTIN", value: p?.gstin ?? null },
+          { label: "Factory", value: p?.factory?.name ?? p?.factoryName ?? null },
+          { label: "City", value: p?.city ?? p?.address?.city ?? null },
+          { label: "Verification", value: p?.verificationStatus ?? p?.verified === true ? "Verified" : (p?.verified === false ? "Pending" : null) },
+        ]}
+      />
+      {state.status === "loading" ? <LoadingBlock /> : null}
+      {state.status === "error" ? <ErrorPanel error={state.error} onRetry={refresh} testID="partner-profile-error" /> : null}
+      <SectionTitle>My RFQs</SectionTitle>
+      <PartnerRfqsInline />
+    </DashboardPageScroll>
   );
 }
 
-function MetaChip({ label, value }: { label: string; value: string }) {
+function PartnerRfqsInline() {
+  const loader = useCallback(() => fetchMyRFQs(), []);
+  const { state, refresh } = useAsyncData<any[]>(loader);
+  if (state.status === "loading") return <LoadingBlock />;
+  if (state.status === "error")
+    return <ErrorPanel error={state.error} onRetry={refresh} testID="partner-profile-rfqs-error" />;
+  if (state.data.length === 0)
+    return <EmptyPanel icon="document-text-outline" title="No RFQs" hint="You haven't received or submitted any RFQs." testID="partner-profile-rfqs-empty" />;
   return (
-    <View style={styles.chip}>
-      <Text style={styles.chipLabel}>{label}:</Text>
-      <Text style={styles.chipValue} numberOfLines={1}>
-        {value}
-      </Text>
-    </View>
+    <>
+      {state.data.slice(0, 10).map((r: any) => (
+        <GenericListCard
+          key={r.id}
+          title={(r.category ?? "General").replace(/-/g, " ")}
+          subtitle={r.description}
+          status={r.status}
+          meta={[
+            { label: "Qty", value: r.quantity },
+            r.createdAt ? { label: "Date", value: new Date(r.createdAt).toLocaleDateString() } : undefined,
+          ].filter((m): m is { label: string; value: string } => !!m)}
+          testID={`partner-profile-rfq-${r.id}`}
+        />
+      ))}
+    </>
   );
+}
+
+function OrdersPage() {
+  const loader = useCallback(() => fetchPartnerOrders(), []);
+  const { state, refresh, refreshing } = useAsyncData<any[]>(loader);
+  return (
+    <DashboardPageScroll onRefresh={refresh} refreshing={refreshing} testID="partner-page-orders">
+      <SectionTitle>Purchase Orders</SectionTitle>
+      {state.status === "loading" ? (
+        <LoadingBlock />
+      ) : state.status === "error" ? (
+        <ErrorPanel error={state.error} onRetry={refresh} testID="partner-orders-error" />
+      ) : state.data.length === 0 ? (
+        <EmptyPanel icon="receipt-outline" title="No purchase orders" hint="POs from approved RFQs will appear here." testID="partner-orders-empty" />
+      ) : (
+        state.data.map((o: any, i: number) => (
+          <GenericListCard
+            key={o.id ?? i}
+            title={o.productName ?? o.title ?? o.name ?? `PO #${(o.id ?? "").slice?.(0, 8) ?? i + 1}`}
+            subtitle={o.notes ?? o.description}
+            status={o.status}
+            meta={[
+              o.quantity != null ? { label: "Qty", value: String(o.quantity) } : undefined,
+              o.total != null ? { label: "Total", value: `₹${o.total}` } : undefined,
+              o.customer?.email ? { label: "Customer", value: o.customer.email } : undefined,
+              o.createdAt ? { label: "Date", value: new Date(o.createdAt).toLocaleDateString() } : undefined,
+            ].filter((m): m is { label: string; value: string } => !!m)}
+            testID={`partner-order-${o.id ?? i}`}
+          />
+        ))
+      )}
+    </DashboardPageScroll>
+  );
+}
+
+function PaymentsPage() {
+  const loader = useCallback(() => fetchPartnerPayments(), []);
+  const { state, refresh, refreshing } = useAsyncData<any[]>(loader);
+  return (
+    <DashboardPageScroll onRefresh={refresh} refreshing={refreshing} testID="partner-page-payments">
+      <SectionTitle>Payment History</SectionTitle>
+      {state.status === "loading" ? (
+        <LoadingBlock />
+      ) : state.status === "error" ? (
+        /Not found|404/i.test(state.error) ? (
+          <ComingSoonPanel label="Payments module isn't live yet." testID="partner-payments-comingsoon" />
+        ) : (
+          <ErrorPanel error={state.error} onRetry={refresh} testID="partner-payments-error" />
+        )
+      ) : state.data.length === 0 ? (
+        <EmptyPanel icon="cash-outline" title="No payments yet" hint="Received payouts will show up here." testID="partner-payments-empty" />
+      ) : (
+        state.data.map((p: any, i: number) => (
+          <GenericListCard
+            key={p.id ?? i}
+            title={p.reference ?? `Payment #${(p.id ?? "").slice?.(0, 8) ?? i + 1}`}
+            subtitle={p.notes ?? p.description}
+            status={p.status}
+            meta={[
+              p.amount != null ? { label: "Amount", value: `₹${p.amount}` } : undefined,
+              p.method ? { label: "Method", value: p.method } : undefined,
+              p.createdAt ? { label: "Date", value: new Date(p.createdAt).toLocaleDateString() } : undefined,
+            ].filter((m): m is { label: string; value: string } => !!m)}
+            testID={`partner-payment-${p.id ?? i}`}
+          />
+        ))
+      )}
+    </DashboardPageScroll>
+  );
+}
+
+function InventoryPage() {
+  const loader = useCallback(() => fetchPartnerInventory(), []);
+  const { state, refresh, refreshing } = useAsyncData<any[]>(loader);
+  return (
+    <DashboardPageScroll onRefresh={refresh} refreshing={refreshing} testID="partner-page-inventory">
+      <SectionTitle>Inventory</SectionTitle>
+      {state.status === "loading" ? (
+        <LoadingBlock />
+      ) : state.status === "error" ? (
+        /Not found|404/i.test(state.error) ? (
+          <ComingSoonPanel label="Inventory module isn't live yet." testID="partner-inventory-comingsoon" />
+        ) : (
+          <ErrorPanel error={state.error} onRetry={refresh} testID="partner-inventory-error" />
+        )
+      ) : state.data.length === 0 ? (
+        <EmptyPanel icon="cube-outline" title="No inventory items" hint="Your product stock levels appear here." testID="partner-inventory-empty" />
+      ) : (
+        state.data.map((it: any, i: number) => (
+          <GenericListCard
+            key={it.id ?? it.sku ?? i}
+            title={it.productName ?? it.name ?? it.title ?? `SKU ${it.sku ?? i + 1}`}
+            subtitle={it.notes ?? it.description}
+            status={it.status}
+            meta={[
+              it.stock != null ? { label: "Stock", value: String(it.stock) } : undefined,
+              it.sku ? { label: "SKU", value: it.sku } : undefined,
+              it.warehouse ? { label: "Warehouse", value: it.warehouse } : undefined,
+            ].filter((m): m is { label: string; value: string } => !!m)}
+            testID={`partner-inventory-${it.id ?? i}`}
+          />
+        ))
+      )}
+    </DashboardPageScroll>
+  );
+}
+
+function AnalyticsPage() {
+  const loader = useCallback(() => fetchPartnerAnalytics(), []);
+  const { state, refresh, refreshing } = useAsyncData<any>(loader);
+  return (
+    <DashboardPageScroll onRefresh={refresh} refreshing={refreshing} testID="partner-page-analytics">
+      <SectionTitle>Analytics</SectionTitle>
+      {state.status === "loading" ? (
+        <LoadingBlock />
+      ) : state.status === "error" ? (
+        <ErrorPanel error={state.error} onRetry={refresh} testID="partner-analytics-error" />
+      ) : (
+        <>
+          <View style={styles.statGrid}>
+            <StatCard
+              icon="cash-outline"
+              label="Total Revenue"
+              value={state.data?.totalRevenue != null || state.data?.revenue != null
+                ? `₹${state.data.totalRevenue ?? state.data.revenue}`
+                : "—"}
+              testID="partner-analytics-revenue"
+            />
+            <StatCard icon="cube-outline" label="Orders" value={state.data?.ordersCount ?? state.data?.orders ?? "—"} testID="partner-analytics-orders" />
+            <StatCard icon="star-outline" label="Avg Rating" value={state.data?.avgRating ?? state.data?.rating ?? "—"} testID="partner-analytics-rating" />
+            <StatCard
+              icon="trending-up-outline"
+              label="This Month"
+              value={
+                state.data?.thisMonthRevenue != null
+                  ? `₹${state.data.thisMonthRevenue}`
+                  : state.data?.currentMonth ?? "—"
+              }
+              testID="partner-analytics-month"
+            />
+          </View>
+          <SectionTitle>Details</SectionTitle>
+          <InfoCard
+            testID="partner-analytics-details"
+            rows={Object.entries(state.data ?? {})
+              .filter(([, v]) => typeof v !== "object" || v == null)
+              .map(([k, v]) => ({ label: humaniseKey(k), value: String(v ?? "") }))}
+          />
+        </>
+      )}
+    </DashboardPageScroll>
+  );
+}
+
+function humaniseKey(k: string) {
+  return k
+    .replace(/([A-Z])/g, " $1")
+    .replace(/[_-]+/g, " ")
+    .replace(/^\w/, (c) => c.toUpperCase())
+    .trim();
 }
 
 const styles = StyleSheet.create({
@@ -177,63 +355,6 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
     gap: spacing.md,
     paddingHorizontal: spacing.lg,
-  },
-  card: {
-    marginHorizontal: spacing.lg,
-    padding: spacing.md,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-    gap: spacing.xs,
     marginBottom: spacing.sm,
-  },
-  itemCard: {
-    padding: spacing.md,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-    marginBottom: spacing.sm,
-    gap: 6,
-  },
-  itemTitle: { color: colors.onSurface, fontSize: font.base, fontWeight: "500", textTransform: "capitalize" },
-  itemDesc: { color: colors.onSurfaceSecondary, fontSize: font.sm, lineHeight: 20 },
-  itemMetaRow: { flexDirection: "row", flexWrap: "wrap", gap: spacing.xs, marginTop: 2 },
-  chip: {
-    flexDirection: "row",
-    gap: 4,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 2,
-    borderRadius: radius.sm,
-    backgroundColor: colors.brandTint,
-    alignItems: "center",
-  },
-  chipLabel: { color: colors.muted, fontSize: 10, textTransform: "uppercase", letterSpacing: 0.5 },
-  chipValue: { color: colors.brand, fontSize: font.sm, fontWeight: "500", textTransform: "capitalize" },
-  emptyCard: {
-    marginHorizontal: spacing.lg,
-    padding: spacing.lg,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surfaceSecondary,
-    alignItems: "center",
-  },
-  emptyText: { color: colors.muted, fontSize: font.base },
-  infoRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    paddingVertical: spacing.xs,
-    gap: spacing.md,
-  },
-  infoLabel: { color: colors.muted, fontSize: font.sm },
-  infoValue: {
-    color: colors.onSurface,
-    fontSize: font.base,
-    fontWeight: "500",
-    flex: 1,
-    textAlign: "right",
-    textTransform: "capitalize",
   },
 });

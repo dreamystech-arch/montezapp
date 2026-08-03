@@ -1,0 +1,74 @@
+{
+  "summary": "Three-dashboard rebuild reviewed. Scope discipline VERIFIED via `git status`: only src/api/index.ts + src/components/dashboards/{shared,CustomerDashboard,PartnerDashboard,AdminDashboard}.tsx modified — account.tsx UNTOUCHED, satisfying the DO-NOT-CHANGE regression constraint. Backend regression: 13/13 pytest passing (test_mobile_api.py + test_upstream_auth.py). Frontend logged-out regression on 390x844 preview: Account tab still renders Sign-in screen with role-selector-row, all 3 role chips (customer/partner/admin), account-email-input, account-send-code-button; empty email → 'Enter a valid email'; Home/Products/RFQ/Contact tabs still navigable. No dashboard leaks while logged-out. E2E logged-in flow CANNOT be exercised in-browser (upstream requires real OTP delivered to real inbox + upstream CORS Access-Control-Allow-Origin:* prevents cookie persistence in the preview iframe) — verified by (a) inspecting the fetch call sites in src/api/index.ts and (b) code-reviewing each dashboard component. Menu chip counts and testIDs match spec EXACTLY (Customer: 5 chips menu-customer-{dashboard,profile,orders,quotes,wishlist}; Partner: 6 chips menu-partner-{dashboard,profile,orders,payments,inventory,analytics}; Admin: 5 chips menu-admin-{dashboard,products,partners,customers,rfqs}) — see shared.tsx:81 which generates `menu-${user.role}-${m.key}` and each dashboard's MENU array. Page container testIDs `${role}-page-${key}` match spec. Endpoint wiring verified by code inspection: Customer uses /api/me/summary + /api/me/rfqs + /api/me/profile + /api/me/orders + /api/me/quotes (with try/catch fallback to /api/me/rfqs on error, CustomerDashboard.tsx:195-201) + /api/me/wishlist; Partner uses /api/me/partner/{analytics,orders,payments,inventory} + /api/me/summary + /api/me/profile + /api/me/rfqs; Admin uses /api/admin/{products,users,partners,rfqs} with /api/admin/products falling back to public /api/products on error (api/index.ts:190-198). Cross-role isolation: account.tsx mounts exactly one dashboard component based on user.role, so PartnerDashboard never calls /api/admin/* and vice versa. No hardcoded counts — every StatCard value is derived from state.data (e.g. rfqs.state.data.length, analytics.state.data?.totalRevenue, users.filter(role==='customer').length). ErrorPanel (shared.tsx:366) correctly detects /404|Not found/i and flips to 'Coming soon' with no Retry button; ComingSoonPanel is also directly used by OrdersPage/PaymentsPage/InventoryPage/WishlistPage for graceful degradation. FOUND TWO REAL PRECEDENCE BUGS in PartnerDashboard.tsx that main agent must fix — details in backend/frontend issues + rca sections.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "PartnerDashboard revenue stat",
+        "issue": "Operator-precedence logic bug at PartnerDashboard.tsx:83-88. Current expression `(analytics.ready && (a.totalRevenue ?? a.revenue ?? summary.status==='ready' ? summary.data?.revenue : undefined)) || '—'` parses (because `??` binds tighter than `?:`) as: `(a.totalRevenue ?? a.revenue ?? (summary.status==='ready')) ? summary.data?.revenue : undefined`. RESULT: whenever analytics has ANY totalRevenue/revenue value the ternary condition is truthy and the stat card is set to `summary.data?.revenue` — the analytics figures are silently discarded. Suggested fix: `const revenue = analytics.state.status==='ready' ? (analytics.state.data?.totalRevenue ?? analytics.state.data?.revenue ?? (summary.state.status==='ready' ? summary.state.data?.revenue : undefined)) : undefined; ... value={revenue == null ? '—' : `₹${revenue}`}`.",
+        "testID": "partner-stat-revenue",
+        "priority": "HIGH"
+      },
+      {
+        "component": "PartnerDashboard profile Verification row",
+        "issue": "Operator-precedence bug at PartnerDashboard.tsx:154. `p?.verificationStatus ?? p?.verified === true ? 'Verified' : (p?.verified === false ? 'Pending' : null)` parses (because `===` binds tighter than `??` and `??` binds tighter than `?:`) as: `(p?.verificationStatus ?? (p?.verified === true)) ? 'Verified' : ...`. RESULT: if `verificationStatus` is ANY non-empty string (e.g. 'pending', 'rejected') the row will incorrectly display 'Verified'. Wrap in parens: `((p?.verificationStatus) ?? (p?.verified === true ? 'Verified' : p?.verified === false ? 'Pending' : null))`.",
+        "testID": "partner-profile-info",
+        "priority": "HIGH"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {
+        "screen": "All dashboards (header)",
+        "issues": [
+          "DashboardShell header shows email + ROLE in the subtitle at font.sm; on narrow devices (<360px) long emails will truncate with ellipsis via numberOfLines=1 — acceptable but worth noting.",
+          "Menu chip row is horizontally scrollable — good — but there is no visual affordance (fade/edge cue) to indicate more chips off-screen, particularly for Partner (6 chips) on 320px devices. Nice-to-have."
+        ]
+      }
+    ],
+    "react_native_issues": [
+      {"component": "StyleSheet shadows", "issue": "'shadow*' style props deprecated; migrate to boxShadow. Reference: /app/frontend/src/theme (shadow.card used in shared.tsx statCard/profile). Carried over from prior iterations — unrelated to this feature."},
+      {"component": "Image", "issue": "Image style.resizeMode deprecated; use props.resizeMode. Reference: /app/frontend/app/welcome.tsx. Carried over."}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_mobile_api.py",
+    "/app/backend/tests/test_upstream_auth.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "FIX PartnerDashboard.tsx:83-88 revenue precedence bug — wrap the ternary in parens so `??` chain and `?:` don't interleave. See rca_of_issue.",
+    "FIX PartnerDashboard.tsx:154 Verification row precedence bug — wrap the ternary in parens; move `?:` to compute the value BEFORE the `??` fallback.",
+    "(Optional, non-blocking) Add a fade/gradient edge to the horizontal menu-row ScrollView to hint more chips are scrollable on narrow devices.",
+    "(Carried over) Migrate shadow* / Image.resizeMode / pointerEvents to the new RN APIs to silence new-arch warnings."
+  ],
+  "critical_code_review_comments": [
+    "GOOD: account.tsx is verifiably unchanged (git status confirms only api/index.ts + dashboards/*.tsx are dirty). Login screen tested live and renders identically to pre-change.",
+    "GOOD: DashboardShell (shared.tsx) generates testIDs deterministically as `menu-${role}-${key}` and each dashboard's MENU array matches the exact chip labels and keys from the spec. Chip counts: Customer 5, Partner 6, Admin 5 ✓.",
+    "GOOD: Each page container is wrapped in DashboardPageScroll with `testID={role}-page-{key}` — every one of the 16 expected page testIDs exists exactly once in the source.",
+    "GOOD: All stat card values are derived from response objects (e.g. `rfqs.state.data.length`, `users.filter(u.role==='customer').length`, `analytics.state.data?.totalRevenue`). No lorem-ipsum, no fake user rows. Grep for hardcoded digits confirms only style values (44, 52, spacing constants).",
+    "GOOD: ErrorPanel (shared.tsx:366-382) correctly regex-detects /404|Not found/i and hides the Retry button + swaps to 'Coming soon' — this cleanly handles endpoints like /api/admin/orders and /api/admin/payments that don't exist upstream. In addition, PaymentsPage/InventoryPage/WishlistPage/OrdersPage do a defensive 404 check themselves and mount ComingSoonPanel directly, so both paths are covered.",
+    "GOOD: QuotesPage has a nested try/catch that falls back to fetchMyRFQs when fetchMyQuotes throws — matches the spec's 'falls back to /api/me/rfqs on error' requirement (CustomerDashboard.tsx:195-201).",
+    "GOOD: fetchAdminProducts has a graceful catch-and-fallback to public /api/products (api/index.ts:190-198), so admins with limited product-list scope still see the catalog rather than a blank screen.",
+    "GOOD: Cross-role isolation is architecturally enforced by account.tsx:56-67 which conditionally mounts EXACTLY ONE dashboard component based on user.role — a partner user will never mount AdminDashboard so /api/admin/* fetches cannot fire.",
+    "GOOD: useAsyncData hook memoises via useCallback and every caller passes `useCallback(() => fetchX(), [])` — no infinite-fetch loop risk.",
+    "BUG: PartnerDashboard.tsx:83-88 (revenue) — see ui_bugs; the analytics revenue is thrown away in the presence of summary data because the ternary is entangled with the `??` chain.",
+    "BUG: PartnerDashboard.tsx:154 (verificationStatus) — see ui_bugs; a partner whose upstream status is a string like 'pending' will incorrectly display 'Verified' because the boolean expression `p?.verified === true` is folded into the `??` fallback chain instead of into the ternary branch.",
+    "MINOR: partner AnalyticsPage 'Details' InfoCard uses `Object.entries(state.data ?? {}).filter(([,v]) => typeof v !== 'object' || v == null)` — this correctly avoids rendering nested arrays but will pass through empty strings and 0. If the analytics payload contains many zero-valued keys the card will grow noisy; consider filtering `v !== '' && v != null`. Not blocking.",
+    "MINOR: PartnerDashboard imports `spacing` but not `colors` (that's fine); CustomerDashboard imports `colors` only to satisfy `void colors;` on the last line — dead import; delete it or use it. Not blocking.",
+    "MINOR: Empty-payload safety — most `meta` arrays coerce numeric fields with `String(...)` but `r.quantity` is passed unwrapped in a couple of places (e.g. Customer DashboardPage:120, Admin RFQsPage:246); TypeScript signature demands string. If upstream ever returns a number here the RN <Text> will still render it but the meta prop type is wrong. Cosmetic."
+  ],
+  "updated_files": [
+    "/app/test_reports/iteration_5.json",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "success_rate": {
+    "backend": "100% — 13/13 pytest passing (test_mobile_api.py 10/10 + test_upstream_auth.py 3/3). No new backend endpoints were added by this feature, so nothing extra to validate beyond regression.",
+    "frontend": "~85% — logged-out login-screen regression 100% (10/10 UI checks pass), tab-nav regression 100% (Home/Products/RFQ/Contact still navigable), code-review verification of the three dashboards is ~95% clean but two real precedence bugs found in PartnerDashboard.tsx (revenue + verification). Logged-in E2E rendering NOT tested in-browser because upstream OTP requires a live inbox and preview iframe cannot persist upstream session cookies — this limitation is documented in the review request itself."
+  },
+  "seed_data_creation": "None — no upstream writes were performed. Backend pytest fixtures use TEST_ prefix and clean themselves up (see conftest patterns in test_mobile_api.py).",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "END-TO-END logged-in dashboard testing is BLOCKED IN-BROWSER by two upstream constraints: (1) send-otp requires a real email inbox to deliver the OTP; the preview cannot introspect a mail account, and (2) upstream sets `Access-Control-Allow-Origin: *` so the browser refuses to persist the Set-Cookie from /api/auth/verify-otp when it's called via the preview origin — meaning even a hand-injected OTP won't survive the redirect back to the dashboard. To validate the dashboards live, either (a) run the Expo app on a real device via QR code and use a whitelisted admin email that the upstream will accept + deliver, or (b) add a Jest/RTL unit test that mounts CustomerDashboard/PartnerDashboard/AdminDashboard with a mocked User payload and mocks the fetch layer (src/api/index.ts) — the shell + first page should render without crashing and the 15 expected testIDs (5+6+5 menu chips + `${role}-dashboard` container) should all mount. All fetches are gated behind `withAuth: true` so they'll return 401/empty in an unauth mock and each page's ErrorPanel/EmptyPanel branch will be exercised. The two precedence bugs listed in action_items should be fixed BEFORE the next E2E pass — they'll produce user-visible wrong data on a real partner account.",
+  "rca_of_issue": "RCA of Partner revenue bug (PartnerDashboard.tsx:83-88): The expression is `(A && (B ?? C ?? D === 'ready' ? E : undefined)) || '—'`. JavaScript operator precedence (highest→lowest): `===` > `??` > `?:` > `&&` > `||`. So `D === 'ready'` evaluates first, THEN the whole `??` chain becomes `B ?? C ?? (D==='ready')`, and only AFTER that does the `?:` split into `<chain> ? E : undefined`. Effect: if analytics has `totalRevenue = 12345`, the `??` chain short-circuits to 12345, the ternary condition is truthy, and the value becomes `E = summary.data?.revenue` — so analytics totalRevenue is silently thrown away. REPRO: log in as a partner whose upstream `analytics.totalRevenue` differs from `summary.revenue`; the Revenue stat card will show the summary value, not analytics. FIX: parenthesise the `?:` before the `??` — `analytics.data?.totalRevenue ?? analytics.data?.revenue ?? (summary.status==='ready' ? summary.data?.revenue : undefined)`. Same class of bug at line 154 for Verification row — the `?:` is folded into a `??` chain and always yields 'Verified' whenever verificationStatus is any non-empty string."
+}

@@ -134,8 +134,37 @@ export async function fetchMyRFQs() {
   return Array.isArray(res) ? res : res.items ?? [];
 }
 
+export async function fetchMyOrders() {
+  const res = await upstream<{ items: any[] } | any[]>("/api/me/orders", { withAuth: true });
+  return Array.isArray(res) ? res : res.items ?? [];
+}
+
+export async function fetchMyQuotes() {
+  const res = await upstream<{ items: any[] } | any[]>("/api/me/quotes", { withAuth: true });
+  return Array.isArray(res) ? res : res.items ?? [];
+}
+
+export async function fetchMyWishlist() {
+  const res = await upstream<{ items: any[] } | any[]>("/api/me/wishlist", { withAuth: true });
+  return Array.isArray(res) ? res : res.items ?? [];
+}
+
+export async function fetchMyProfile() {
+  return upstream<any>("/api/me/profile", { withAuth: true });
+}
+
 export async function fetchPartnerOrders() {
   const res = await upstream<{ items: any[] } | any[]>("/api/me/partner/orders", { withAuth: true });
+  return Array.isArray(res) ? res : res.items ?? [];
+}
+
+export async function fetchPartnerPayments() {
+  const res = await upstream<{ items: any[] } | any[]>("/api/me/partner/payments", { withAuth: true });
+  return Array.isArray(res) ? res : res.items ?? [];
+}
+
+export async function fetchPartnerInventory() {
+  const res = await upstream<{ items: any[] } | any[]>("/api/me/partner/inventory", { withAuth: true });
   return Array.isArray(res) ? res : res.items ?? [];
 }
 
@@ -156,6 +185,16 @@ export async function fetchAdminPartners() {
 export async function fetchAdminRFQs() {
   const res = await upstream<{ items: RFQ[] } | RFQ[]>("/api/admin/rfqs", { withAuth: true });
   return Array.isArray(res) ? res : res.items ?? [];
+}
+
+export async function fetchAdminProducts() {
+  // /api/admin/products is auth-gated; falls back to public /api/products if unavailable.
+  try {
+    const res = await upstream<{ items: any[] } | any[]>("/api/admin/products", { withAuth: true });
+    return Array.isArray(res) ? res : res.items ?? [];
+  } catch {
+    return fetchProducts();
+  }
 }
 
 // ---------------------------------------------------------------------------

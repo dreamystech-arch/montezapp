@@ -1,217 +1,281 @@
-import { useCallback, useEffect, useState } from "react";
-import { RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useCallback, useState } from "react";
+import { StyleSheet, View } from "react-native";
 
-import { fetchMyRFQs, fetchMySummary } from "@/src/api";
-import type { RFQ, User } from "@/src/api/types";
 import {
-  DashboardHeader,
+  fetchMyOrders,
+  fetchMyProfile,
+  fetchMyQuotes,
+  fetchMyRFQs,
+  fetchMySummary,
+  fetchMyWishlist,
+} from "@/src/api";
+import type { User } from "@/src/api/types";
+import {
+  ComingSoonPanel,
+  DashboardPageScroll,
+  DashboardShell,
+  EmptyPanel,
+  ErrorPanel,
+  GenericListCard,
+  InfoCard,
   LoadingBlock,
+  MenuItem,
   ProfileCard,
-  QuickLinkRow,
   SectionTitle,
+  StatCard,
+  useAsyncData,
 } from "@/src/components/dashboards/shared";
-import { colors, font, radius, spacing } from "@/src/theme";
+import { colors, spacing } from "@/src/theme";
 
-export function CustomerDashboard({
-  user,
-  onLogout,
-}: {
-  user: User;
-  onLogout: () => void;
-}) {
-  const [rfqs, setRfqs] = useState<RFQ[]>([]);
-  const [summary, setSummary] = useState<any | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+type Page = "dashboard" | "profile" | "orders" | "quotes" | "wishlist";
 
-  const load = useCallback(async () => {
-    setError(null);
-    try {
-      const [rfqRes, sumRes] = await Promise.allSettled([fetchMyRFQs(), fetchMySummary()]);
-      if (rfqRes.status === "fulfilled") setRfqs(rfqRes.value);
-      if (sumRes.status === "fulfilled") setSummary(sumRes.value);
-      if (rfqRes.status === "rejected" && sumRes.status === "rejected") {
-        setError("Could not load your data. Pull to retry.");
-      }
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, []);
+const MENU: MenuItem<Page>[] = [
+  { key: "dashboard", label: "Dashboard", icon: "speedometer-outline" },
+  { key: "profile", label: "Profile", icon: "person-outline" },
+  { key: "orders", label: "Orders", icon: "bag-handle-outline" },
+  { key: "quotes", label: "Saved Quotes", icon: "bookmark-outline" },
+  { key: "wishlist", label: "Wishlist", icon: "heart-outline" },
+];
 
-  useEffect(() => {
-    load();
-  }, [load]);
+export function CustomerDashboard({ user, onLogout }: { user: User; onLogout: () => void }) {
+  const [page, setPage] = useState<Page>("dashboard");
 
-  const onRefresh = () => {
-    setRefreshing(true);
-    load();
+  return (
+    <DashboardShell
+      user={user}
+      title="My Dashboard"
+      menu={MENU}
+      active={page}
+      onSelect={setPage}
+      onLogout={onLogout}
+    >
+      {page === "dashboard" ? <DashboardPage user={user} /> : null}
+      {page === "profile" ? <ProfilePage user={user} /> : null}
+      {page === "orders" ? <OrdersPage /> : null}
+      {page === "quotes" ? <QuotesPage /> : null}
+      {page === "wishlist" ? <WishlistPage /> : null}
+    </DashboardShell>
+  );
+}
+
+// ---------- Pages ------------------------------------------------------------
+function DashboardPage({ user }: { user: User }) {
+  const summaryLoader = useCallback(() => fetchMySummary(), []);
+  const rfqLoader = useCallback(() => fetchMyRFQs(), []);
+  const summary = useAsyncData<any>(summaryLoader);
+  const rfqs = useAsyncData<any[]>(rfqLoader);
+
+  const refresh = () => {
+    summary.refresh();
+    rfqs.refresh();
   };
 
+  const rfqCount = rfqs.state.status === "ready" ? rfqs.state.data.length : "—";
+  const sum = summary.state.status === "ready" ? summary.state.data : null;
+  const openCount =
+    rfqs.state.status === "ready"
+      ? rfqs.state.data.filter((r: any) => (r.status ?? "").toLowerCase() !== "closed").length
+      : "—";
+
   return (
-    <ScrollView
-      style={{ flex: 1, backgroundColor: colors.surface }}
-      contentContainerStyle={{ paddingBottom: spacing.xxxl }}
-      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.brand} />}
-      testID="customer-dashboard"
-    >
-      <DashboardHeader title="My Dashboard" subtitle="Track your quotes and account" onLogout={onLogout} />
+    <DashboardPageScroll onRefresh={refresh} refreshing={summary.refreshing || rfqs.refreshing} testID="customer-page-dashboard">
       <ProfileCard user={user} />
-
-      <SectionTitle>Profile</SectionTitle>
-      <View style={styles.card} testID="customer-profile-details">
-        <InfoRow label="Email" value={user.email} />
-        {user.name ? <InfoRow label="Name" value={user.name} /> : null}
-        {user.phone ? <InfoRow label="Phone" value={user.phone} /> : null}
-        <InfoRow label="Role" value={user.role} />
-        {user.createdAt ? (
-          <InfoRow label="Member since" value={new Date(user.createdAt).toLocaleDateString()} />
-        ) : null}
+      <SectionTitle>Overview</SectionTitle>
+      <View style={styles.statGrid}>
+        <StatCard icon="document-text-outline" label="Total RFQs" value={rfqCount as any} testID="customer-stat-rfqs" />
+        <StatCard icon="time-outline" label="Open RFQs" value={openCount as any} testID="customer-stat-open" />
+        <StatCard
+          icon="bag-handle-outline"
+          label="Orders"
+          value={sum?.ordersCount ?? sum?.orders ?? "—"}
+          testID="customer-stat-orders"
+        />
+        <StatCard
+          icon="heart-outline"
+          label="Saved"
+          value={sum?.savedCount ?? sum?.saved ?? "—"}
+          testID="customer-stat-saved"
+        />
       </View>
 
-      <SectionTitle testID="customer-rfq-history-title">RFQ history</SectionTitle>
-      {loading ? (
-        <LoadingBlock label="Loading your quotes…" />
-      ) : error ? (
-        <Text style={styles.errorText}>{error}</Text>
-      ) : rfqs.length === 0 ? (
-        <View style={styles.emptyCard} testID="customer-rfq-empty">
-          <Text style={styles.emptyText}>You haven&apos;t submitted any RFQs yet.</Text>
-        </View>
+      <SectionTitle>Recent RFQs</SectionTitle>
+      {rfqs.state.status === "loading" ? (
+        <LoadingBlock />
+      ) : rfqs.state.status === "error" ? (
+        <ErrorPanel error={rfqs.state.error} onRetry={rfqs.refresh} testID="customer-dashboard-rfq-error" />
+      ) : rfqs.state.data.length === 0 ? (
+        <EmptyPanel
+          icon="document-text-outline"
+          title="No RFQs yet"
+          hint="Submit an RFQ from the RFQ tab to see it here."
+          testID="customer-dashboard-rfq-empty"
+        />
       ) : (
-        <View style={{ paddingHorizontal: spacing.lg }}>
-          {rfqs.slice(0, 20).map((r) => (
-            <View key={r.id} style={styles.rfqCard} testID={`customer-rfq-${r.id}`}>
-              <View style={styles.rfqTop}>
-                <Text style={styles.rfqCategory} numberOfLines={1}>
-                  {(r.category ?? "General").replace(/-/g, " ")}
-                </Text>
-                <View style={[styles.status, statusStyle(r.status)]}>
-                  <Text style={[styles.statusText, statusStyle(r.status)]} numberOfLines={1}>
-                    {r.status}
-                  </Text>
-                </View>
-              </View>
-              <Text style={styles.rfqQuantity}>{r.quantity}</Text>
-              <Text style={styles.rfqDesc} numberOfLines={2}>
-                {r.description}
-              </Text>
-              <Text style={styles.rfqDate}>{new Date(r.createdAt).toLocaleDateString()}</Text>
-            </View>
-          ))}
-        </View>
+        rfqs.state.data.slice(0, 5).map((r: any) => (
+          <GenericListCard
+            key={r.id}
+            title={(r.category ?? "General").replace(/-/g, " ")}
+            subtitle={r.description}
+            status={r.status}
+            meta={[
+              { label: "Qty", value: r.quantity },
+              { label: "Date", value: new Date(r.createdAt).toLocaleDateString() },
+            ]}
+            testID={`customer-recent-rfq-${r.id}`}
+          />
+        ))
       )}
-
-      {summary ? (
-        <>
-          <SectionTitle>Summary</SectionTitle>
-          <View style={styles.card}>
-            {Object.entries(summary).slice(0, 6).map(([k, v]) => (
-              <InfoRow key={k} label={humaniseKey(k)} value={String(typeof v === "object" ? JSON.stringify(v) : v)} />
-            ))}
-          </View>
-        </>
-      ) : null}
-
-      <View style={{ paddingHorizontal: spacing.lg, marginTop: spacing.md }}>
-        <QuickLinkRow icon="log-out-outline" label="Logout" onPress={onLogout} testID="customer-logout-row" />
-      </View>
-    </ScrollView>
+    </DashboardPageScroll>
   );
 }
 
-function humaniseKey(k: string) {
-  return k
-    .replace(/([A-Z])/g, " $1")
-    .replace(/[_-]+/g, " ")
-    .replace(/^\w/, (c) => c.toUpperCase())
-    .trim();
-}
-
-function InfoRow({ label, value }: { label: string; value: string }) {
+function ProfilePage({ user }: { user: User }) {
+  const loader = useCallback(() => fetchMyProfile(), []);
+  const { state, refresh, refreshing } = useAsyncData<any>(loader);
+  const profile = state.status === "ready" ? state.data : null;
   return (
-    <View style={styles.infoRow}>
-      <Text style={styles.infoLabel}>{label}</Text>
-      <Text style={styles.infoValue} numberOfLines={2}>
-        {value}
-      </Text>
-    </View>
+    <DashboardPageScroll onRefresh={refresh} refreshing={refreshing} testID="customer-page-profile">
+      <ProfileCard user={user} />
+      <SectionTitle>Account details</SectionTitle>
+      <InfoCard
+        testID="customer-profile-info"
+        rows={[
+          { label: "Name", value: profile?.name ?? user.name ?? null },
+          { label: "Email", value: profile?.email ?? user.email },
+          { label: "Phone", value: profile?.phone ?? user.phone ?? null },
+          { label: "Role", value: user.role },
+          { label: "Company", value: profile?.company ?? profile?.companyName ?? null },
+          { label: "Member since", value: profile?.createdAt ?? user.createdAt ?? null },
+        ]}
+      />
+      {state.status === "loading" ? <LoadingBlock /> : null}
+      {state.status === "error" ? <ErrorPanel error={state.error} onRetry={refresh} testID="customer-profile-error" /> : null}
+    </DashboardPageScroll>
   );
 }
 
-function statusStyle(status: string) {
-  const s = (status || "").toLowerCase();
-  if (s === "new") return { backgroundColor: "#FEF3C7", color: "#B45309" } as const;
-  if (s === "in-progress" || s === "in_progress") return { backgroundColor: "#DBEAFE", color: "#1D4ED8" } as const;
-  if (s === "closed" || s === "completed") return { backgroundColor: "#DCFCE7", color: "#166534" } as const;
-  return { backgroundColor: colors.surfaceTertiary, color: colors.onSurfaceSecondary } as const;
+function OrdersPage() {
+  const loader = useCallback(() => fetchMyOrders(), []);
+  const { state, refresh, refreshing } = useAsyncData<any[]>(loader);
+  return (
+    <DashboardPageScroll onRefresh={refresh} refreshing={refreshing} testID="customer-page-orders">
+      <SectionTitle>My Orders</SectionTitle>
+      {state.status === "loading" ? (
+        <LoadingBlock />
+      ) : state.status === "error" ? (
+        /Not found|404/i.test(state.error) ? (
+          <ComingSoonPanel label="Orders module isn't live for your account yet." testID="customer-orders-comingsoon" />
+        ) : (
+          <ErrorPanel error={state.error} onRetry={refresh} testID="customer-orders-error" />
+        )
+      ) : state.data.length === 0 ? (
+        <EmptyPanel icon="bag-handle-outline" title="No orders yet" hint="Approved RFQs become orders here." testID="customer-orders-empty" />
+      ) : (
+        state.data.map((o: any, i: number) => (
+          <GenericListCard
+            key={o.id ?? i}
+            title={o.productName ?? o.title ?? o.name ?? `Order #${(o.id ?? "").slice?.(0, 8) ?? i + 1}`}
+            subtitle={o.notes ?? o.description}
+            status={o.status}
+            meta={[
+              o.quantity != null ? { label: "Qty", value: String(o.quantity) } : undefined,
+              o.total != null ? { label: "Total", value: `₹${o.total}` } : undefined,
+              o.createdAt ? { label: "Date", value: new Date(o.createdAt).toLocaleDateString() } : undefined,
+            ].filter((m): m is { label: string; value: string } => !!m)}
+            testID={`customer-order-${o.id ?? i}`}
+          />
+        ))
+      )}
+    </DashboardPageScroll>
+  );
+}
+
+function QuotesPage() {
+  // Primary source is /api/me/quotes. Falls back to /api/me/rfqs if the endpoint is unavailable.
+  const loader = useCallback(async () => {
+    try {
+      return await fetchMyQuotes();
+    } catch {
+      return await fetchMyRFQs();
+    }
+  }, []);
+  const { state, refresh, refreshing } = useAsyncData<any[]>(loader);
+  return (
+    <DashboardPageScroll onRefresh={refresh} refreshing={refreshing} testID="customer-page-quotes">
+      <SectionTitle>Saved Quotes / RFQs</SectionTitle>
+      {state.status === "loading" ? (
+        <LoadingBlock />
+      ) : state.status === "error" ? (
+        <ErrorPanel error={state.error} onRetry={refresh} testID="customer-quotes-error" />
+      ) : state.data.length === 0 ? (
+        <EmptyPanel
+          icon="bookmark-outline"
+          title="No saved quotes"
+          hint="Quotes you receive from partners appear here."
+          testID="customer-quotes-empty"
+        />
+      ) : (
+        state.data.map((q: any, i: number) => (
+          <GenericListCard
+            key={q.id ?? i}
+            title={q.product?.name ?? q.productName ?? (q.category ?? "Quote").replace?.(/-/g, " ") ?? "Quote"}
+            subtitle={q.description ?? q.notes}
+            status={q.status}
+            meta={[
+              q.quantity != null ? { label: "Qty", value: String(q.quantity) } : undefined,
+              q.priceQuoted != null ? { label: "Price", value: `₹${q.priceQuoted}` } : undefined,
+              q.createdAt ? { label: "Date", value: new Date(q.createdAt).toLocaleDateString() } : undefined,
+            ].filter((m): m is { label: string; value: string } => !!m)}
+            testID={`customer-quote-${q.id ?? i}`}
+          />
+        ))
+      )}
+    </DashboardPageScroll>
+  );
+}
+
+function WishlistPage() {
+  const loader = useCallback(() => fetchMyWishlist(), []);
+  const { state, refresh, refreshing } = useAsyncData<any[]>(loader);
+  return (
+    <DashboardPageScroll onRefresh={refresh} refreshing={refreshing} testID="customer-page-wishlist">
+      <SectionTitle>Wishlist</SectionTitle>
+      {state.status === "loading" ? (
+        <LoadingBlock />
+      ) : state.status === "error" ? (
+        /Not found|404/i.test(state.error) ? (
+          <ComingSoonPanel label="Wishlist isn't enabled for your account yet." testID="customer-wishlist-comingsoon" />
+        ) : (
+          <ErrorPanel error={state.error} onRetry={refresh} testID="customer-wishlist-error" />
+        )
+      ) : state.data.length === 0 ? (
+        <EmptyPanel icon="heart-outline" title="Nothing saved yet" hint="Tap the heart on any product to add it here." testID="customer-wishlist-empty" />
+      ) : (
+        state.data.map((w: any, i: number) => (
+          <GenericListCard
+            key={w.id ?? w.productId ?? i}
+            title={w.product?.name ?? w.name ?? w.productName ?? "Item"}
+            subtitle={w.product?.description ?? w.description}
+            meta={[
+              w.product?.category ?? w.category ? { label: "Category", value: w.product?.category ?? w.category } : undefined,
+              w.product?.price ?? w.price ? { label: "Price", value: `₹${w.product?.price ?? w.price}` } : undefined,
+            ].filter((m): m is { label: string; value: string } => !!m)}
+            testID={`customer-wishlist-${w.id ?? i}`}
+          />
+        ))
+      )}
+    </DashboardPageScroll>
+  );
 }
 
 const styles = StyleSheet.create({
-  card: {
-    marginHorizontal: spacing.lg,
-    padding: spacing.md,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-    gap: spacing.xs,
-    marginBottom: spacing.sm,
-  },
-  infoRow: {
+  statGrid: {
     flexDirection: "row",
-    justifyContent: "space-between",
-    paddingVertical: spacing.xs,
+    flexWrap: "wrap",
     gap: spacing.md,
-  },
-  infoLabel: { color: colors.muted, fontSize: font.sm },
-  infoValue: {
-    color: colors.onSurface,
-    fontSize: font.base,
-    fontWeight: "500",
-    flex: 1,
-    textAlign: "right",
-  },
-  emptyCard: {
-    marginHorizontal: spacing.lg,
-    padding: spacing.lg,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surfaceSecondary,
-    alignItems: "center",
-  },
-  emptyText: { color: colors.muted, fontSize: font.base },
-  rfqCard: {
-    padding: spacing.md,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-    marginBottom: spacing.sm,
-    gap: 4,
-  },
-  rfqTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  rfqCategory: {
-    color: colors.onSurface,
-    fontSize: font.base,
-    fontWeight: "500",
-    textTransform: "capitalize",
-    flex: 1,
-  },
-  status: {
-    borderRadius: radius.pill,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 2,
-  },
-  statusText: { fontSize: 10, fontWeight: "500", letterSpacing: 0.5, textTransform: "uppercase" },
-  rfqQuantity: { color: colors.brand, fontSize: font.base, fontWeight: "500" },
-  rfqDesc: { color: colors.onSurfaceSecondary, fontSize: font.sm, lineHeight: 20 },
-  rfqDate: { color: colors.muted, fontSize: font.sm, marginTop: 2 },
-  errorText: {
-    color: colors.error,
-    fontSize: font.sm,
     paddingHorizontal: spacing.lg,
+    marginBottom: spacing.sm,
   },
 });
+// Silence unused-import lint if any
+void colors;
