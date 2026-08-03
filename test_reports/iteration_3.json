@@ -1,0 +1,40 @@
+{
+  "summary": "Bug fix verified: product images now render correctly across the mobile app. absolutiseMediaUrl() in /app/frontend/src/api/index.ts normalises all product media URLs from the /api/products upstream. Confirmed via live browser test (390x844 viewport) on preview URL: Products tab renders 20 <img> elements resolving to https://enterprise-supply-1.emergent.host/api/media/<id> — 0 relative paths, 0 montezinfobyte.com paths, all images loaded (complete=True, naturalWidth=400-569px). Network trace shows /api/media/... responses returning HTTP 200 content-type: image/jpeg (or image/png). Product detail hero image (Men's Nova Polo T-Shirt) visibly loads. Home tab Featured Products cards all show real product images. Home banner unsplash URL (https://images.unsplash.com/photo-1587293852726...) is correctly preserved unchanged, confirming absolutiseMediaUrl leaves non-/api external URLs alone. Reproduced original bug source: upstream /api/products returns 11 items, item 0 with relative image=\"/api/media/...\" and items 1-10 with image=\"https://montezinfobyte.com/api/media/...\" — both mutation paths are now correctly rewritten. Also verified server-side that both rewritten URLs return image/jpeg 200 from enterprise-supply-1.emergent.host. Deprecated packages detected: none new — pre-existing shadow*, Image.resizeMode, and pointerEvents deprecation warnings from iteration_1/2 still present (non-blocking, unrelated to this fix).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": [
+      {"component": "StyleSheet shadows", "issue": "'shadow*' style props deprecated; migrate to boxShadow. Reference: /app/frontend/src/theme (shadow.card used across ProductCard.tsx, home.tsx, product/[slug].tsx). Carried over — not related to this fix."},
+      {"component": "Image", "issue": "Image style.resizeMode deprecated; use props.resizeMode. Reference: /app/frontend/app/welcome.tsx. Carried over — not related to this fix."},
+      {"component": "pointerEvents", "issue": "props.pointerEvents deprecated; use style.pointerEvents. Likely inside LinearGradient/SafeArea wrappers. Carried over — not related to this fix."}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_mobile_api.py",
+    "/app/backend/tests/test_upstream_auth.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "NONE — image URL normalisation bug is fixed and verified end-to-end. Ship it.",
+    "(Carried over) Migrate shadow*, Image.resizeMode, pointerEvents to their new APIs to silence RN new-arch warnings — unrelated to this bug."
+  ],
+  "critical_code_review_comments": [
+    "src/api/index.ts absolutiseMediaUrl: correctly handles all 6 edge cases the spec listed — (a) null/undefined → undefined, (b) already-correct UPSTREAM_BASE prefix → passthrough (fast path), (c) other-origin + /api|/media|/uploads path → rewrite origin to UPSTREAM_BASE, (d) other-origin + external path (e.g. unsplash /photo-...) → passthrough unchanged, (e) relative '/...' → prefix UPSTREAM_BASE, (f) empty string → undefined via truthy guard. Regex ^https?://[^/]+(/.*)$ correctly captures the path.",
+    "normaliseProductMedia: mutates both image and gallery arrays; gallery filter drops any undefined result. Type-narrowed correctly via `(g): g is string`.",
+    "fetchProducts + fetchProductBySlug both funnel through normaliseProductMedia, so ProductCard, product/[slug].tsx gallery pager, and home.tsx Featured Products all receive already-normalised URLs — no downstream consumer change needed. Verified by inspecting all 4 consumer files.",
+    "Minor: absolutiseMediaUrl does not handle protocol-relative '//host/path' URLs (would fall through to the `startsWith('/')` branch and prefix with UPSTREAM_BASE → producing 'https://enterprise-supply-1.emergent.host//host/path'). Upstream API does not currently emit such URLs so this is theoretical only.",
+    "fetchSettings has its own smaller absolutise helper (lines 79-80) that only handles http-vs-relative. It's simpler than absolutiseMediaUrl but sufficient for logoUrl/faviconUrl. Slight DRY smell (two similar helpers) but acceptable given differing semantics (settings only expects relative-or-absolute-same-origin, never wrong-origin)."
+  ],
+  "updated_files": ["/app/test_reports/iteration_3.json (this file)"],
+  "success_rate": {
+    "backend": "N/A — frontend-only fix. Upstream /api/products already tested working (returns 11 items with mixed URL formats as expected).",
+    "frontend": "100% — all image normalisation paths verified in-browser: relative→rewritten, wrong-host→rewritten, unsplash→preserved, upstream→passthrough. All 20 product <img> elements loaded (naturalWidth > 0)."
+  },
+  "seed_data_creation": "None. Read-only verification against live upstream data.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "The image-URL bug is fixed. Upstream /api/products returns image fields in 3 shapes: relative '/api/media/<id>', wrong-origin 'https://montezinfobyte.com/api/media/<id>', and (rarely) already-correct 'https://enterprise-supply-1.emergent.host/api/media/<id>'. All are normalised by absolutiseMediaUrl in src/api/index.ts before reaching UI. Non-media external URLs (unsplash) are correctly left alone — the home banner and welcome background rely on this. When adding new product-media consumers in future, always route them through fetchProducts/fetchProductBySlug (which apply normaliseProductMedia) rather than calling upstream() directly.",
+  "rca_of_issue": "ROOT CAUSE (already fixed by main agent): upstream /api/products returns image URLs in inconsistent formats — a mix of relative paths (which RN <Image source={uri}> cannot resolve on Android) and hard-coded absolute URLs pointing at the wrong host (montezinfobyte.com, which no longer serves the CDN). MITIGATION (implemented): a single-purpose helper absolutiseMediaUrl() applied via normaliseProductMedia() inside fetchProducts, which both (a) prefixes relative paths with the known-good UPSTREAM_BASE, and (b) swaps any /api|/media|/uploads path served from a different host back to UPSTREAM_BASE. Because every product-media consumer (ProductCard, product detail gallery, Home featured list) calls fetchProducts/fetchProductBySlug, the fix is centralised and complete. VERIFICATION: live browser DOM inspection + network trace on 390x844 mobile viewport."
+}

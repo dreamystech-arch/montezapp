@@ -13,13 +13,41 @@ import type {
 // ---------------------------------------------------------------------------
 // Upstream: catalog
 // ---------------------------------------------------------------------------
+function absolutiseMediaUrl(u?: string | null): string | undefined {
+  if (!u) return undefined;
+  // Already an absolute URL pointing at the correct origin
+  if (u.startsWith(UPSTREAM_BASE)) return u;
+  // Absolute URL pointing at some other origin (e.g. https://montezinfobyte.com/api/media/...)
+  // — swap the origin for our known API base so the media resolves via the app's backend.
+  const otherOriginMatch = u.match(/^https?:\/\/[^/]+(\/.*)$/);
+  if (otherOriginMatch) {
+    const path = otherOriginMatch[1];
+    // Only re-point paths that look like media assets; leave true external URLs (e.g. unsplash) alone.
+    if (path.startsWith("/api/") || path.startsWith("/media/") || path.startsWith("/uploads/")) {
+      return `${UPSTREAM_BASE}${path}`;
+    }
+    return u;
+  }
+  // Relative paths → prefix with the base API URL.
+  if (u.startsWith("/")) return `${UPSTREAM_BASE}${u}`;
+  return u;
+}
+
+function normaliseProductMedia(p: Product): Product {
+  return {
+    ...p,
+    image: absolutiseMediaUrl(p.image),
+    gallery: p.gallery?.map((g) => absolutiseMediaUrl(g)).filter((g): g is string => Boolean(g)),
+  };
+}
+
 export async function fetchProducts(params?: { category?: string; q?: string }) {
   const qs = new URLSearchParams();
   if (params?.category && params.category !== "all") qs.set("category", params.category);
   if (params?.q) qs.set("q", params.q);
   const suffix = qs.toString() ? `?${qs.toString()}` : "";
   const res = await upstream<{ items: Product[] }>(`/api/products${suffix}`);
-  let items = res.items ?? [];
+  let items = (res.items ?? []).map(normaliseProductMedia);
   if (params?.category && params.category !== "all") {
     items = items.filter((p) => p.category === params.category);
   }
