@@ -15,6 +15,47 @@ def api():
     return s
 
 
+# Snapshot & restore all CMS fields these tests mutate, so we don't leave
+# TEST_ placeholder data (or fake example.com URLs) in the live singleton —
+# otherwise the Home banner / welcome / logo previews break for real users.
+_FIELDS_TO_RESTORE = (
+    "splashImage",
+    "splashDurationMs",
+    "appLogo",
+    "welcomeHeading",
+    "welcomeSubtext",
+    "welcomeImage",
+    "homeBannerImage",
+    "homeBannerText",
+    "announcement",
+)
+
+
+@pytest.fixture(autouse=True)
+def restore_cms_singleton():
+    s = requests.Session()
+    s.headers.update({"Content-Type": "application/json"})
+    snapshot = None
+    try:
+        r = s.get(f"{BASE_URL}/api/mobile/cms", timeout=10)
+        if r.status_code == 200:
+            live = r.json().get("cms", {}) or {}
+            snapshot = {k: live.get(k) for k in _FIELDS_TO_RESTORE if k in live}
+    except Exception:
+        snapshot = None
+    yield
+    if snapshot:
+        try:
+            s.put(
+                f"{BASE_URL}/api/mobile/cms",
+                json=snapshot,
+                headers={"X-Admin-Token": ADMIN_TOKEN, "Content-Type": "application/json"},
+                timeout=10,
+            )
+        except Exception:
+            pass
+
+
 # --- Individual endpoint shape ---
 class TestCMSSplitEndpoints:
     def test_splash(self, api):

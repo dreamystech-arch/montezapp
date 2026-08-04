@@ -15,6 +15,35 @@ def api():
     return s
 
 
+@pytest.fixture(autouse=True)
+def restore_footer():
+    """Snapshot the current footer, run the test, then restore it.
+
+    This prevents the destructive PUT in test_admin_patch_updates_footer from
+    leaving TEST_ placeholder data in the DB (which would break the live
+    Home-tab footer preview for real users)."""
+    s = requests.Session()
+    s.headers.update({"Content-Type": "application/json"})
+    original = None
+    try:
+        r = s.get(f"{BASE_URL}/api/cms/footer", timeout=10)
+        if r.status_code == 200:
+            original = r.json()
+    except Exception:
+        original = None
+    yield
+    if original is not None:
+        try:
+            s.put(
+                f"{BASE_URL}/api/mobile/cms",
+                json={"footer": original},
+                headers={"X-Admin-Token": ADMIN_TOKEN, "Content-Type": "application/json"},
+                timeout=10,
+            )
+        except Exception:
+            pass
+
+
 class TestFooterEndpoint:
     def test_shape(self, api):
         r = api.get(f"{BASE_URL}/api/cms/footer")

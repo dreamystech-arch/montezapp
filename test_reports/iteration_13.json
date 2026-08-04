@@ -1,0 +1,45 @@
+{
+  "summary": "Verified both fixes from the bug report: (1) FOOTER — GET /api/cms/footer now returns production content (about starts with 'Montez Infobyte connects…', 5 quickLinks About/Products/RFQ/Contact/Get Your Store all pointing to montezinfobyte.com/*, contactColumns [Contact: +91 7639533953 / montez.spprt@gmail.com] + [Address: Door No 76 … Tamil Nadu, India], 3 socials Facebook/Instagram/LinkedIn, copyright '© 2026 Montez Infobyte Private Limited. All rights reserved.'). Live Home footer rendered every expected testID (site-footer, footer-about, footer-link-about, footer-link-products, footer-link-rfq, footer-link-contact, footer-link-get-your-store, footer-column-contact, footer-column-address, footer-social-facebook, footer-social-instagram, footer-social-linkedin, footer-copyright) with the correct production strings and no TEST_/X/C/S placeholders. (2) BANNER — At 390x844 the testID home-banner wrapper bounding box is x=0 w=390 h=219.375 and home-banner-image is x=0 w=390 h=219.375 (edge-to-edge, no side margin); styles.bannerWrap has marginHorizontal:0 borderRadius:0 (home.tsx L179-185); resizeMode='cover' on the <Image>; img.src=https://enterprise-supply-1.emergent.host/api/media/1bf29af6-19b6-4db3-896c-0afe63bb5f6d loads 200 with natural 1842x854 complete=true. (3) REGRESSION — full pytest suite 37/37 pass. However, the previous test suite had a defect the review request explicitly warned about: test_footer.py::test_admin_patch_updates_footer, test_cms_split.py::TestCMSSingletonPropagation, and test_cms_hardening.py all mutated the mobile_cms singleton with TEST_/example.com/LEGACY_ values and never restored — meaning any pytest run instantly re-pollutes the live preview. I fixed this by adding: (a) autouse function-scoped snapshot+restore fixture in test_footer.py, (b) autouse function-scoped snapshot+restore fixture in test_cms_split.py for all mutated CMS fields, and (c) session-scoped autouse fixture in a new /app/backend/tests/conftest.py that snapshots the full singleton at session-start and PUTs it back at session-end (safety net for direct-motor writes in test_cms_hardening.py). After the fix, pytest runs leave the live singleton CLEAN — verified pre/post pytest that homeBannerImage, appLogo, welcomeHeading, welcomeSubtext, welcomeImage, announcement, and footer all remain production values. No frontend files were touched.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "backend/tests suite", "issue": "Under xdist parallel execution (default -n auto in pytest.ini) test_cms_split.py::TestCMSSingletonPropagation::test_update_reflects_in_all_split_endpoints is flaky because two workers concurrently PUT different homeBannerImage values to the same singleton. Fails ~1/3 runs. Sequential run (-o addopts='') always passes 37/37. Consider serializing singleton-mutating tests with @pytest.mark.serial or a file-based lock."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/conftest.py",
+    "/app/backend/tests/test_footer.py",
+    "/app/backend/tests/test_cms_split.py",
+    "/app/backend/tests/test_cms_hardening.py",
+    "/app/backend/tests/test_mobile_api.py",
+    "/app/backend/tests/test_upstream_auth.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "(Optional) mark singleton-mutating tests as serial to fix parallel flake noted in backend_issues.minor.",
+    "(Optional) test_cms_hardening.py directly writes '/api/media/LEGACY_relative_xyz' via motor and never resets it. My session-scoped conftest snapshots the whole singleton at session-start and restores at session-end so this is now safe, but the test itself would be cleaner if it also cleaned up its motor write."
+  ],
+  "critical_code_review_comments": [
+    "home.tsx L178-186: styles.bannerWrap uses marginHorizontal:0, borderRadius:0, aspectRatio:16/9, overflow:'hidden' + styles.bannerImage width:'100%' — correct for edge-to-edge full-width banner.",
+    "SiteFooter.tsx renders entirely from cms.footer with defensive `hasAnyContent` gate; testIDs are stable and derived from CMS labels via slugify. No code changes needed — the visible bug was DB pollution from the test suite, not the component.",
+    "server.py L55-93: MobileCMS defaults contain the correct production footer (about, 5 quickLinks, 2 contactColumns, 3 socials, copyright). PUT restores work via the standard admin flow.",
+    "PRE-EXISTING TEST DEFECT: three test files mutated the mobile_cms singleton without restoring, leaking TEST_/example.com placeholders into the live preview — the exact problem the reviewer flagged. Fixed with autouse snapshot/restore fixtures."
+  ],
+  "updated_files": [
+    "/app/backend/tests/conftest.py (new — session-scoped autouse snapshot/restore of mobile_cms singleton)",
+    "/app/backend/tests/test_footer.py (added autouse restore fixture; test_admin_patch_updates_footer no longer leaves TEST_ data in DB)",
+    "/app/backend/tests/test_cms_split.py (added autouse restore fixture for splashImage/appLogo/welcomeHeading/welcomeSubtext/welcomeImage/homeBannerImage/homeBannerText/announcement)"
+  ],
+  "success_rate": {"backend": "100% (37/37 sequential)", "frontend": "100% — banner x=0 w=390 edge-to-edge, all 12 footer testIDs rendered with production content"},
+  "seed_data_creation": "Restored production CMS values (welcomeHeading='India's Trusted B2B Manufacturing & Procurement Platform', welcomeSubtext, welcomeImage=Unsplash 1590490584637, appLogo=/api/media/f35b04da…, homeBannerImage=/api/media/65133fa3… — currently mirrored to /api/media/1bf29af6… by upstream —, announcement='Free samples on select SKUs. Dispatch in 3-7 days.', footer production defaults). State verified CLEAN after final pytest run.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "The mobile_cms singleton is now protected by /app/backend/tests/conftest.py (session-scoped autouse snapshot/restore) plus per-file function-scoped fixtures in test_footer.py and test_cms_split.py. Any future test that PUTs to /api/mobile/cms will have its changes rolled back automatically, so the live Home preview stays clean. If you add new tests that mutate the singleton, they inherit these fixtures automatically — no extra work needed. Do NOT remove conftest.py.",
+  "rca_of_issue": "Root cause of the visible footer/banner regression across recent iterations: not a code bug — three backend tests (test_footer.py::test_admin_patch_updates_footer, test_cms_split.py::TestCMSSingletonPropagation, test_cms_hardening.py motor-direct write) mutated the mobile_cms singleton with TEST_/example.com/LEGACY_ placeholder values and had no teardown. Every prior testing agent run left the DB in a polluted state that persisted through supervisor reloads because mobile_cms is a MongoDB document. The main agent's manual PUT this iteration fixed the DB but any subsequent pytest run would have re-broken it. Mitigation: added session-scoped snapshot/restore in conftest.py + per-file autouse function-scoped fixtures. Verified: after full pytest run, all CMS fields remain at production values."
+}
