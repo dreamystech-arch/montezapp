@@ -11,7 +11,6 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { LinearGradient } from "expo-linear-gradient";
 import { useFocusEffect, useRouter } from "expo-router";
 
 import { fetchProducts } from "@/src/api";
@@ -61,10 +60,7 @@ export default function HomeScreen() {
     await Promise.all([refreshBoot(), load()]);
   }, [refreshBoot, load]);
 
-  const bannerImage =
-    cms?.homeBannerImage ??
-    "https://images.unsplash.com/photo-1587293852726-70cdb56c2866?crop=entropy&cs=srgb&fm=jpg&q=85&w=1600";
-  const bannerText = cms?.homeBannerText ?? "Verified Manufacturers • Pan-India Delivery";
+  const bannerImage = cms?.homeBannerImage ?? "";
   const announcement = cms?.announcement ?? "";
 
   return (
@@ -93,28 +89,17 @@ export default function HomeScreen() {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.brand} />}
         ListHeaderComponent={
           <View>
-            {/* Banner */}
-            <View style={styles.bannerWrap}>
-              <Image source={{ uri: bannerImage }} style={styles.bannerImage} />
-              <LinearGradient
-                colors={["rgba(0,0,0,0)", "rgba(0,0,0,0.55)"]}
-                style={StyleSheet.absoluteFill}
-              />
-              <View style={styles.bannerText}>
-                <Text style={styles.bannerBadge}>Trusted B2B Platform</Text>
-                <Text style={styles.bannerHeadline} testID="home-banner-text">
-                  {bannerText}
-                </Text>
-                <TouchableOpacity
-                  style={styles.bannerCta}
-                  onPress={() => router.push("/(tabs)/products")}
-                  testID="home-browse-button"
-                >
-                  <Text style={styles.bannerCtaText}>Browse Products</Text>
-                  <Ionicons name="arrow-forward" size={16} color={colors.brand} />
-                </TouchableOpacity>
-              </View>
-            </View>
+            {/* CMS-driven banner image only — no overlaid hardcoded copy or CTA */}
+            {bannerImage ? (
+              <TouchableOpacity
+                style={styles.bannerWrap}
+                activeOpacity={0.9}
+                onPress={() => router.push("/(tabs)/products")}
+                testID="home-banner"
+              >
+                <Image source={{ uri: bannerImage }} style={styles.bannerImage} testID="home-banner-image" />
+              </TouchableOpacity>
+            ) : null}
 
             {/* Announcement */}
             {announcement ? (

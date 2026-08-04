@@ -1,0 +1,40 @@
+{
+  "summary": "Both bug fixes VERIFIED on live preview 390x844. (1) HOME BANNER: home-banner-image now renders ONLY the CMS-fetched image (background-image url resolves to https://enterprise-supply-1.emergent.host/api/media/c6c39210-…, natural 1942x809). Banner wrap innerText is empty; DOM grep confirms ZERO occurrences of 'Trusted B2B Platform', 'Browse Products', 'Verified Manufacturers', 'Pan-India Delivery'. testIDs home-banner-text and home-browse-button are absent. No LinearGradient scrim, no CTA overlay — just the raw image with rounded corners. (2) SPLASH LOGO: splash-logo Image resolves via the new fallback chain to https://enterprise-supply-1.emergent.host/api/media/f35b04da-… (400x100 natural). Confirmed by curl: /api/cms/logo.url='' and /api/app-settings.settings.logo.url='' are empty; /api/settings.settings.logoUrl='/api/media/f35b04da-…' is populated and correctly absolutised by absolutiseMediaUrl(). Inspected src/api/index.ts fetchMobileCMS: siteSettings.settings.logoUrl is 3rd in the appLogo pickString chain (after logo.url and appSettings.logo.url). home-app-logo in the Home header also renders from the same source. Regressions clean: announcement pill 'Launch Your Store' renders, stats block (Cities/Partners/Products/Delivered) renders, Featured Products list renders 8 product cards with real images, bottom tab bar (Home/Products/RFQ/Contact/Account) intact. Zero pageerrors. Backend 19/19 pytest passing in 2.07s (no backend changes this iteration). Only carried-over non-blocking RN warnings from prior iterations remain (shadow*, Image style.resizeMode on welcome.tsx:64, pointerEvents from expo-router internals).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_mobile_api.py",
+    "/app/backend/tests/test_cms_split.py",
+    "/app/backend/tests/test_upstream_auth.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "OPTIONAL (carried over from iteration_8): reset legacy /api/mobile/cms singleton — welcome.tsx still shows 'TEST_welcome_head_1785821436' / 'TEST_welcome_sub_1785821436' because upstream welcome.items is [] and the legacy singleton still holds prior test seed values. Fix by PUT to /api/mobile/cms with X-Admin-Token: montez-admin-2026 to restore desired defaults, OR wait for upstream welcomeSlides/welcome CMS to be filled by admin.",
+    "OPTIONAL (carried over, non-blocking RN deprecations): (a) migrate StyleSheet shadow* → boxShadow; (b) welcome.tsx:64 Image style.resizeMode → props.resizeMode; (c) audit pointerEvents usages (warning largely from expo-router internals)."
+  ],
+  "critical_code_review_comments": [
+    "GOOD: /app/frontend/src/api/index.ts:298-304 appLogo fallback chain is correct: logo?.url → appSettings.logo.url → siteSettings.logoUrl → legacy — with each candidate run through absolutiseMediaUrl() so relative /api/media/... paths become full URLs. Confirmed live: chain skips two empty upstream sources and lands on siteSettings.logoUrl.",
+    "GOOD: /app/frontend/app/(tabs)/home.tsx:93-102 banner block now renders NOTHING when bannerImage is falsy (no hardcoded fallback), and when present is just a TouchableOpacity wrapping <Image> with testID='home-banner-image'. No overlaid Text, no CTA, no LinearGradient.",
+    "GOOD: styles for bannerText/bannerBadge/bannerHeadline/bannerCta/bannerCtaText remain declared in StyleSheet but are unreferenced (dead code). Harmless — safe to leave until a cleanup pass, but the main agent may want to prune them to keep home.tsx tidy.",
+    "OBSERVATION: RN Web renders each Image as a wrapping div + a nested background-image div + an accessibilityImage <img>. Automation that reads `.src` directly on the [data-testid] element sees null; the actual URL lives on the inner div's background-image and on the nested <img>. Testing agents should read either style.backgroundImage or the nested <img>[src] — not the outer div's src attribute.",
+    "OBSERVATION: /api/cms/logo.url and /api/app-settings.settings.logo.url are both empty on upstream today, so the fix is exercised via the /api/settings.logoUrl branch. If the admin later populates the CMS logo endpoint, the earlier fallback will win — verified precedence order is correct in code."
+  ],
+  "updated_files": [
+    "/app/test_reports/iteration_9.json",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "success_rate": {
+    "backend": "100% — 19/19 pytest passing in 2.07s (test_mobile_api 10/10 + test_cms_split 6/6 + test_upstream_auth 3/3).",
+    "frontend": "100% — Both bug fixes verified end-to-end on live preview. Splash logo, home banner (image-only), home logo, announcement pill, stats block, featured products list all render correctly. Zero pageerrors, zero object-in-<Text> crashes."
+  },
+  "seed_data_creation": "None. No changes to backend seeds this iteration.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Both target bugs are fixed and structurally regression-safe. Key gotcha for future testing agents: RN Web renders <Image> as a div — the actual image URL is only visible on the inner div's inline `background-image` and on a nested `<img>` (with class css-accessibilityImage-…). Do NOT assert on `[data-testid=\"…\"].src` for Images; instead query the descendant <img>[src] or inline style.backgroundImage. Upstream state at test time: /api/cms/logo.url='', /api/app-settings.logo.url='', /api/settings.logoUrl='/api/media/f35b04da-…' (populated), /api/cms/banner.items[0].image='/api/media/c6c39210-…' (populated). Legacy /api/mobile/cms still contains TEST_ seed values from iterations 7-8 (visible on Welcome screen); not blocking but visually noisy.",
+  "rca_of_issue": "Iteration 8 shipped an overlaid hardcoded hero (headline, subheading, 'Browse Products' CTA, 'Trusted B2B Platform' badge, LinearGradient scrim) on top of the CMS banner image AND the splash used a hardcoded/local logo. Iteration 9 removed the overlay Text/CTA/LinearGradient/badge from home.tsx (banner is now TouchableOpacity wrapping only <Image>) and extended fetchMobileCMS with two more upstream sources (/api/app-settings and /api/settings) so the splash logo picks up the admin-managed brand logo via siteSettings.logoUrl when the newer /api/cms/logo endpoint is still empty. Verified: banner has no overlays or hardcoded text; splash-logo <Image> resolves to the fetched /api/media/f35b04da-… asset via the new fallback branch. Both fixes confirmed on live preview."
+}

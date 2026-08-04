@@ -246,30 +246,73 @@ function pickActiveAnnouncement(items: UpstreamAnnouncement[] | undefined): stri
 }
 
 export async function fetchMobileCMS(): Promise<MobileCMS> {
-  const [splash, logo, banner, ann, welcome, legacy] = await Promise.all([
+  const [splash, logo, banner, ann, welcome, appSettings, siteSettings, legacy] = await Promise.all([
     fetchUpstreamCMS<UpstreamSplash>("/api/cms/splash"),
     fetchUpstreamCMS<UpstreamLogo>("/api/cms/logo"),
     fetchUpstreamCMS<{ items?: UpstreamBannerItem[] }>("/api/cms/banner"),
     fetchUpstreamCMS<{ items?: UpstreamAnnouncement[] }>("/api/cms/announcements"),
     fetchUpstreamCMS<{ items?: UpstreamWelcomeItem[] }>("/api/cms/welcome"),
+    // /api/app-settings aggregates the same CMS values — provides another
+    // source when the split endpoints are empty. Its `logo.url` is authoritative.
+    fetchUpstreamCMS<{
+      settings?: {
+        logo?: { url?: string; darkUrl?: string };
+        splash?: UpstreamSplash;
+        welcomeSlides?: UpstreamWelcomeItem[];
+        homeBanners?: (UpstreamBannerItem & { active?: boolean })[];
+        announcements?: (UpstreamAnnouncement & { active?: boolean })[];
+      };
+    }>("/api/app-settings"),
+    // Final upstream logo source — the site-wide /api/settings.logoUrl is the
+    // real product logo, used across the marketing site.
+    fetchUpstreamCMS<{ settings?: { logoUrl?: string } }>("/api/settings"),
+    // Legacy /api/mobile/cms singleton — filler for any field still missing.
     fetchLocalCMS<{ cms: MobileCMS }>("/api/mobile/cms").then((r) => r?.cms ?? null),
   ]);
 
-  const bannerItem = banner?.items?.[0];
-  const welcomeItem = welcome?.items?.[0];
-  const upstreamAnnouncement = pickActiveAnnouncement(ann?.items);
+  const appLogoUrl = appSettings?.settings?.logo?.url;
+  const siteLogoUrl = siteSettings?.settings?.logoUrl;
+  const appSplash = appSettings?.settings?.splash;
+  const appHomeBanner = (appSettings?.settings?.homeBanners ?? []).find((b) => b?.active !== false);
+  const appAnnouncement = (appSettings?.settings?.announcements ?? []).find(
+    (a) => a?.active !== false,
+  );
+  const appWelcome = appSettings?.settings?.welcomeSlides?.[0];
 
-  const splashImage = pickString(absolutiseMediaUrl(splash?.image), legacy?.splashImage) ?? "";
-  const splashDurationMs = splash?.durationMs ?? legacy?.splashDurationMs ?? 1600;
-  const appLogo = pickString(absolutiseMediaUrl(logo?.url), legacy?.appLogo) ?? "";
+  const bannerItem = banner?.items?.[0] ?? appHomeBanner;
+  const welcomeItem = welcome?.items?.[0] ?? appWelcome;
+  const upstreamAnnouncement =
+    pickActiveAnnouncement(ann?.items) ??
+    (appAnnouncement?.message && appAnnouncement.message.trim() !== ""
+      ? appAnnouncement.message
+      : undefined);
+
+  const splashImage =
+    pickString(
+      absolutiseMediaUrl(splash?.image),
+      absolutiseMediaUrl(appSplash?.image),
+      legacy?.splashImage,
+    ) ?? "";
+  const splashDurationMs =
+    splash?.durationMs ?? appSplash?.durationMs ?? legacy?.splashDurationMs ?? 1600;
+  const appLogo =
+    pickString(
+      absolutiseMediaUrl(logo?.url),
+      absolutiseMediaUrl(appLogoUrl),
+      absolutiseMediaUrl(siteLogoUrl),
+      legacy?.appLogo,
+    ) ?? "";
   const homeBannerImage =
     pickString(absolutiseMediaUrl(bannerItem?.image), legacy?.homeBannerImage) ?? "";
   const homeBannerText =
     pickString(bannerItem?.title, bannerItem?.subtitle, legacy?.homeBannerText) ?? "";
   const announcement = pickString(upstreamAnnouncement, legacy?.announcement) ?? "";
-  const welcomeHeading = pickString(welcomeItem?.heading, welcomeItem?.title, legacy?.welcomeHeading) ?? "";
-  const welcomeSubtext = pickString(welcomeItem?.subtext, welcomeItem?.subtitle, legacy?.welcomeSubtext) ?? "";
-  const welcomeImage = pickString(absolutiseMediaUrl(welcomeItem?.image), legacy?.welcomeImage) ?? "";
+  const welcomeHeading =
+    pickString(welcomeItem?.heading, welcomeItem?.title, legacy?.welcomeHeading) ?? "";
+  const welcomeSubtext =
+    pickString(welcomeItem?.subtext, welcomeItem?.subtitle, legacy?.welcomeSubtext) ?? "";
+  const welcomeImage =
+    pickString(absolutiseMediaUrl(welcomeItem?.image), legacy?.welcomeImage) ?? "";
 
   return {
     splashImage,
