@@ -200,9 +200,54 @@ export async function fetchAdminProducts() {
 // ---------------------------------------------------------------------------
 // Local supplementary backend
 // ---------------------------------------------------------------------------
-export async function fetchMobileCMS() {
-  const res = await local<{ cms: MobileCMS }>("/api/mobile/cms");
-  return res.cms;
+// ---------------------------------------------------------------------------
+// CMS: split-per-section endpoints at /api/cms/{splash|logo|banner|announcements|welcome}.
+// Prefers the upstream site backend if those routes are live, else falls back
+// to our local supplementary backend which serves the same shapes.
+// ---------------------------------------------------------------------------
+async function fetchCMSSection<T>(path: string): Promise<T | null> {
+  try {
+    return await upstream<T>(path);
+  } catch {
+    try {
+      return await local<T>(path);
+    } catch {
+      return null;
+    }
+  }
+}
+
+export async function fetchMobileCMS(): Promise<MobileCMS> {
+  const [splash, logo, banner, ann, welcome, legacy] = await Promise.all([
+    fetchCMSSection<{ splashImage?: string; splashDurationMs?: number }>("/api/cms/splash"),
+    fetchCMSSection<{ appLogo?: string }>("/api/cms/logo"),
+    fetchCMSSection<{ homeBannerImage?: string; homeBannerText?: string }>("/api/cms/banner"),
+    fetchCMSSection<{ items?: string[]; announcement?: string }>("/api/cms/announcements"),
+    fetchCMSSection<{
+      welcomeHeading?: string;
+      welcomeSubtext?: string;
+      welcomeImage?: string;
+      slides?: { heading?: string; subtext?: string; image?: string }[];
+    }>("/api/cms/welcome"),
+    // Legacy singleton — filler for any field neither the upstream nor split
+    // endpoints provide. This is our safety net so old admin data still shows.
+    local<{ cms: MobileCMS }>("/api/mobile/cms").then((r) => r.cms).catch(() => null),
+  ]);
+
+  const firstSlide = welcome?.slides?.[0];
+
+  return {
+    splashImage: splash?.splashImage ?? legacy?.splashImage ?? "",
+    splashDurationMs: splash?.splashDurationMs ?? legacy?.splashDurationMs ?? 1600,
+    appLogo: logo?.appLogo ?? legacy?.appLogo ?? "",
+    welcomeHeading: welcome?.welcomeHeading ?? firstSlide?.heading ?? legacy?.welcomeHeading ?? "",
+    welcomeSubtext: welcome?.welcomeSubtext ?? firstSlide?.subtext ?? legacy?.welcomeSubtext ?? "",
+    welcomeImage: welcome?.welcomeImage ?? firstSlide?.image ?? legacy?.welcomeImage ?? "",
+    homeBannerImage: banner?.homeBannerImage ?? legacy?.homeBannerImage ?? "",
+    homeBannerText: banner?.homeBannerText ?? legacy?.homeBannerText ?? "",
+    announcement: ann?.announcement ?? ann?.items?.[0] ?? legacy?.announcement ?? "",
+    updatedAt: legacy?.updatedAt ?? new Date().toISOString(),
+  };
 }
 
 export async function sendOtp(phone: string) {

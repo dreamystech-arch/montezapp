@@ -1,0 +1,64 @@
+{
+  "summary": "CRITICAL: Home tab crashes with React red-screen 'Objects are not valid as a React child (found: object with keys {id, message, type, startsAt, endsAt})' because the review-request's core assumption — 'upstream /api/cms/* returns 404 today' — is now FALSE. Upstream https://enterprise-supply-1.emergent.host/api/cms/{splash,logo,banner,announcements,welcome} all return HTTP 200 but with a completely different schema than our local backend. fetchMobileCMS in /app/frontend/src/api/index.ts prefers upstream, receives valid-but-differently-shaped JSON, and never falls back to local. The mismatch surfaces most severely on announcements: upstream returns `{items:[{id,message,type,startsAt,endsAt}], updatedAt}` (items are OBJECTS, no top-level `announcement` string). The merge line `ann?.announcement ?? ann?.items?.[0]` therefore stores the raw object into `cms.announcement`; home.tsx then renders `<Text>{announcement}</Text>` → crash. Welcome heading test PASSED (upstream welcome returns empty items→undefined→legacy fallback works). Splash logo/screen rendered fine. Backend regression: 19/19 pytest passing (new /app/backend/tests/test_cms_split.py adds 6 tests: 5 endpoint shape checks + 1 singleton→split-endpoints propagation test). All 5 local /api/cms/* endpoints return the expected shapes and are backed by the same mobile_cms singleton (PUT /api/mobile/cms reflects in every split GET immediately). Refresh-on-open UI verification BLOCKED by the red-screen crash — could not verify announcement pill updates after PUT+reload because Home never renders successfully while upstream announcements returns object items. Also observed deprecation warnings: shadow* → boxShadow (shared theme), Image style.resizeMode (welcome.tsx), and NEW: props.pointerEvents is deprecated (surfaces on tab-router navigation).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "app/(tabs)/home.tsx via src/api/index.ts fetchMobileCMS",
+        "issue": "RED SCREEN on Home: 'Objects are not valid as a React child (found: object with keys {id, message, type, startsAt, endsAt}).' Root cause: upstream /api/cms/announcements returns {items:[{id,message,type,startsAt,endsAt}], updatedAt} (200 OK), but merge code `ann?.announcement ?? ann?.items?.[0]` grabs the raw item object and stores it in cms.announcement. home.tsx line 124 renders {announcement} inside <Text>, crashing the component tree. Reference: /app/frontend/src/api/index.ts:248, /app/frontend/app/(tabs)/home.tsx:124.",
+        "testID": "home-announcement",
+        "priority": "CRITICAL"
+      }
+    ],
+    "integration_issues": [
+      {
+        "flow": "fetchMobileCMS upstream-first merge",
+        "issue": "Upstream /api/cms/* endpoints are LIVE (all return 200), but their schema is INCOMPATIBLE with what fetchMobileCMS expects. Upstream shapes observed: /cms/splash={image,backgroundColor,tagline,durationMs,updatedAt} (keys: `image` not `splashImage`, `durationMs` not `splashDurationMs`); /cms/logo={url,darkUrl,updatedAt} (key: `url` not `appLogo`); /cms/banner={items:[{id,image,title,subtitle,ctaText,ctaLink}],updatedAt} (no homeBannerImage/homeBannerText); /cms/welcome={items:[],updatedAt} (no welcomeHeading/subtext/image/slides); /cms/announcements items are OBJECTS not strings. Since these return 200, the try/catch fallback to local never fires — every field except announcement silently falls to legacy /api/mobile/cms filler by accident because upstream keys don't match; announcements specifically crashes because items[0] is treated as a string.",
+        "affected_testIDs": ["home-announcement", "home-banner-text", "home-app-logo", "welcome-heading", "splash-logo"]
+      }
+    ],
+    "design_issues": [],
+    "react_native_issues": [
+      {"component": "StyleSheet shadow*", "issue": "\"shadow*\" style props deprecated in RN new arch. Reference: /app/frontend/src/theme (shadow.card in home.tsx styles.stats). Carried over."},
+      {"component": "Image", "issue": "Image style.resizeMode deprecated; use props.resizeMode. Reference: /app/frontend/app/welcome.tsx:64 (styles.bg). Carried over."},
+      {"component": "View", "issue": "props.pointerEvents is deprecated; use style.pointerEvents. Warning surfaces on tab-router navigation. Likely inside expo-router / react-native-screens dependency, but worth checking any local usages."}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_mobile_api.py",
+    "/app/backend/tests/test_cms_split.py",
+    "/app/backend/tests/test_upstream_auth.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "URGENT: Fix fetchMobileCMS in /app/frontend/src/api/index.ts to handle the REAL upstream schema. Two options: (A) Map upstream keys explicitly — e.g. `splashImage = upstream_splash.image ?? local.splashImage`; `announcement = upstream_ann.items?.[0]?.message ?? local.announcement`; `homeBannerImage = upstream_ban.items?.[0]?.image ?? local.homeBannerImage`. (B) SIMPLER — just stop calling upstream for /api/cms/* since local has the right shape; hit only local /api/mobile/cms and the local /api/cms/* fallbacks. Given the review_request's original intent (silent switch when upstream ships them), option A is preferable but only after confirming with the user what the intended source of truth is now that upstream schemas differ.",
+    "Ensure any object accidentally stored in cms.announcement / cms.homeBannerText / cms.homeBannerImage is filtered before render — even after the fix, add a `typeof x === 'string'` guard in fetchMobileCMS's return so a shape regression never crashes the UI again.",
+    "Fix upstream media absolutisation: upstream splash `image`, logo `url`, banner items `image` are relative paths like `/api/media/…` — will need absolutiseMediaUrl treatment when adopted.",
+    "(Optional carried over) Migrate shadow* → boxShadow, Image style.resizeMode → props.resizeMode, and audit pointerEvents usages."
+  ],
+  "critical_code_review_comments": [
+    "BUG: /app/frontend/src/api/index.ts:220-250 — the upstream-first fallback logic assumed upstream returns 404. It now returns 200 with a totally different JSON shape. fetchCMSSection() only falls back to local on THROW; a 200 with unknown keys is treated as success. Every dependent field silently degrades, and announcements crashes React.",
+    "BUG: /app/frontend/src/api/index.ts:248 — `ann?.announcement ?? ann?.items?.[0]` — the second operand is unsafe. Even in the well-behaved local shape, items are strings; but with upstream shape, items[0] is an object. This should be `ann?.announcement ?? (typeof ann?.items?.[0] === 'string' ? ann.items[0] : ann?.items?.[0]?.message) ?? legacy?.announcement ?? ''`.",
+    "BUG: home.tsx doesn't defensively coerce announcement to a string before rendering. Even a defensive `typeof announcement === 'string' ? announcement : ''` would prevent a red-screen crash from a bad upstream payload. Recommend adding this belt-and-braces guard.",
+    "GOOD: backend/server.py /api/cms/* endpoints are correct and consistent with the LOCAL contract described in the review_request; all 5 are backed by _get_cms_doc() singleton and reflect PUT /api/mobile/cms atomically. Verified end-to-end by TestCMSSingletonPropagation.",
+    "GOOD: welcome heading came through correctly on 390x844 preview (TEST_WELCOME_1785811544) — proves the upstream→local fallback works for welcome specifically because upstream returns items:[] with no slides, making all extractors undefined and forcing the legacy filler.",
+    "OBSERVATION: splash and logo also silently fall through to legacy because upstream keys are named `image`/`durationMs` and `url`/`darkUrl`, not `splashImage`/`splashDurationMs`/`appLogo`. So splash rendering appearing to work is really the legacy filler doing the job — not the upstream-first path. When upstream fixes shape, these will silently break (or improve) too."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_cms_split.py",
+    "/app/test_reports/iteration_7.json",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "success_rate": {
+    "backend": "100% — 19/19 pytest passing (test_mobile_api 10/10 + test_cms_split 6/6 + test_upstream_auth 3/3 in ~4s). All 5 /api/cms/* endpoints return the documented local shape and stay in sync with PUT /api/mobile/cms.",
+    "frontend": "40% — Splash + Welcome + Welcome→Home navigation click succeed; welcome-heading correctly reflects CMS (TEST_WELCOME_1785811544). Home crashes red-screen. Refresh-on-open couldn't be verified because Home never renders."
+  },
+  "seed_data_creation": "Wrote several TEST_* patched values into mobile_cms singleton via authorised PUT /api/mobile/cms during propagation + live-refresh checks: announcement='CMS_REFRESH_LIVE_1785811544' (then updated to 'CMS_REFRESH_LIVE_focus_1785811588'), welcomeHeading='TEST_WELCOME_1785811544', homeBannerText='TEST_BANNER_1785811544', plus example.com placeholders for splash/welcome/banner images. Main agent may want to reset these to production defaults after the fix by PUTting the original values, or leaving them — they don't block anything, they're just conspicuous placeholders.",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "After the fix, re-run: (1) pytest /app/backend/tests/ -v (should stay 19/19); (2) live check on 390x844: clear localStorage, reload, wait for welcome-screen — heading matches /api/mobile/cms.welcomeHeading; tap welcome-continue-button; wait for home-banner-text — matches homeBannerText; assert home-announcement is visible AND contains a substring you PUT (or the upstream message[0] if the fix chose to expose upstream); refresh-on-focus: PUT a new announcement via /api/mobile/cms (X-Admin-Token: montez-admin-2026), reload the page, wait 3s, verify home-announcement reflects the new value. If main agent chose option-A (adopt upstream), also validate that PUTting the LOCAL /api/mobile/cms no longer changes visible UI (because upstream is the new source of truth) OR set expectations accordingly.",
+  "rca_of_issue": "Reproduction: (1) On any device/browser, open the app; (2) tap Skip on Welcome; (3) Home mounts, tries to render <Text>{cms.announcement}</Text>. Because fetchMobileCMS hits upstream first and upstream now returns 200 with `{items:[{id,message,...}], updatedAt}`, the merge `ann?.announcement ?? ann?.items?.[0]` stores the OBJECT `{id:'9227...',message:'Launch Your Store',type:'info',startsAt,endsAt}` as cms.announcement. React tries to render an object as a text child → red screen. Root cause = review_request's premise ('upstream 404s these routes today') is stale — upstream shipped these endpoints between the fix being written and this test run; and the schema they use is incompatible with the local contract this PR standardised on. Mitigation options in `action_items` above. Recommended minimal safe fix: (i) in fetchMobileCMS extract `announcement` defensively — `typeof ann?.items?.[0] === 'string' ? ann.items[0] : ann?.items?.[0]?.message`; (ii) same for `homeBannerImage`/`homeBannerText` (from upstream `banner.items[0].image`/`title`); (iii) map upstream splash `image`/`durationMs` → `splashImage`/`splashDurationMs`; (iv) map upstream logo `url` → `appLogo`; (v) run through absolutiseMediaUrl for any relative `/api/media/…` returned by upstream. This makes the app resilient to whichever backend variant is live."
+}

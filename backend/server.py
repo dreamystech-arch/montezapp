@@ -123,6 +123,57 @@ async def get_mobile_cms():
     return {"cms": await _get_cms_doc()}
 
 
+# --- Split-per-section CMS endpoints matching /api/cms/{splash|logo|banner|announcements|welcome} ---
+@api_router.get("/cms/splash")
+async def get_cms_splash():
+    doc = await _get_cms_doc()
+    return {
+        "splashImage": doc.get("splashImage"),
+        "splashDurationMs": doc.get("splashDurationMs"),
+    }
+
+
+@api_router.get("/cms/logo")
+async def get_cms_logo():
+    doc = await _get_cms_doc()
+    return {"appLogo": doc.get("appLogo")}
+
+
+@api_router.get("/cms/banner")
+async def get_cms_banner():
+    doc = await _get_cms_doc()
+    return {
+        "homeBannerImage": doc.get("homeBannerImage"),
+        "homeBannerText": doc.get("homeBannerText"),
+    }
+
+
+@api_router.get("/cms/announcements")
+async def get_cms_announcements():
+    doc = await _get_cms_doc()
+    text = doc.get("announcement") or ""
+    items = [text] if text else []
+    return {"items": items, "announcement": text}
+
+
+@api_router.get("/cms/welcome")
+async def get_cms_welcome():
+    doc = await _get_cms_doc()
+    slides = [
+        {
+            "heading": doc.get("welcomeHeading"),
+            "subtext": doc.get("welcomeSubtext"),
+            "image": doc.get("welcomeImage"),
+        }
+    ]
+    return {
+        "welcomeHeading": doc.get("welcomeHeading"),
+        "welcomeSubtext": doc.get("welcomeSubtext"),
+        "welcomeImage": doc.get("welcomeImage"),
+        "slides": slides,
+    }
+
+
 def _check_admin(x_admin_token: Optional[str]):
     if x_admin_token != ADMIN_TOKEN:
         raise HTTPException(401, "Invalid admin token")
