@@ -1,0 +1,40 @@
+{
+  "summary": "CMS split-endpoint fix VERIFIED — the red-screen crash from iteration_7 is resolved. fetchMobileCMS() in /app/frontend/src/api/index.ts now correctly maps upstream's real schema (splash.image/durationMs, logo.url, banner.items[].image/title/subtitle, announcements.items[] filtered by time window + message extraction, welcome.items[].heading/subtext/image), absolutises relative /api/media/... URLs, and falls back to legacy /api/mobile/cms per-field when upstream field is empty. pickString() guards ensure only non-empty strings pass through and pickActiveAnnouncement() returns item.message (string) — never a raw object. Live UI verified on 390x844: Splash → Welcome → Home all render without any pageerror or console error (0/0). home-announcement rendered as plain string 'Launch Your Store' (from upstream announcements.items — since both upstream items are dated Aug 2026 (future) the time-window filter empties `active[]`, then the fallback `items.find(...message string...)` picks the first item and returns its .message string — safe, no crash). home-banner-text shows legacy value ('TEST_banner_text_1785811848') because upstream banner.items[0].title/subtitle are both empty — fallback works as designed. Welcome heading/subtext show legacy values because upstream welcome.items=[]. Upstream banner image absolutised correctly (visible in screenshot). Backend regression: 19/19 pytest green in 1.89s (no backend changes). Refresh-on-focus code paths present (useFocusEffect + AppState listener call refreshCMS which re-fetches all 5 upstream endpoints + local in parallel each call). Deprecated packages check: no expo-av / expo-barcode-scanner / expo-background-fetch imports found. Carried-over RN deprecation warnings from iteration_7 (shadow*, Image style.resizeMode on welcome.tsx:64, pointerEvents from expo-router internals) are non-blocking and not re-flagged since they are unrelated to this fix.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_mobile_api.py",
+    "/app/backend/tests/test_cms_split.py",
+    "/app/backend/tests/test_upstream_auth.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "OPTIONAL: reset the legacy /api/mobile/cms singleton to production defaults — it still holds iteration_7's test seed values (TEST_welcome_head_1785811848, TEST_banner_text_1785811848, https://example.com/*.jpg placeholders, and CMS_LIVE_1785811916 announcement). These render fine but are conspicuous placeholders visible whenever upstream field is empty. PUT to /api/mobile/cms with X-Admin-Token: montez-admin-2026 to restore desired defaults, OR leave as-is if the upstream is expected to become the source of truth.",
+    "OPTIONAL (carried over from iteration_7, non-blocking): (a) migrate StyleSheet shadow* → boxShadow; (b) welcome.tsx:64 Image style.resizeMode → props.resizeMode; (c) audit pointerEvents usages (warning largely from expo-router internals)."
+  ],
+  "critical_code_review_comments": [
+    "GOOD: /app/frontend/src/api/index.ts:236-246 pickActiveAnnouncement — the two-tier logic (time-window active[0] → falls back to first item with a non-empty message string) is correct and guarantees a string return. With upstream items currently all future-dated (Aug 2026), the fallback branch fires and yields 'Launch Your Store' as a string. Safe.",
+    "GOOD: /app/frontend/src/api/index.ts:231-234 pickString — enforces `typeof v === 'string' && v.trim() !== ''` so every field returned by fetchMobileCMS is provably a string, defusing the object-in-<Text> crash class of bugs.",
+    "GOOD: absolutiseMediaUrl correctly re-points other-origin /api/media/… paths back to the app's UPSTREAM_BASE so upstream banner/splash images resolve via the known API host.",
+    "OBSERVATION: On direct-nav to /(tabs)/home before AppProvider finishes its initial refreshBoot(), cms is null and home falls back to the hardcoded 'Verified Manufacturers • Pan-India Delivery' banner text and hides announcement (`announcement ? … : null`). Not a bug — CMS refetch on focus repopulates within ~1-2s. Worth noting only if UX-perceived flicker is a concern.",
+    "OBSERVATION: splash-logo Image did not render in the smoke run because legacy appLogo currently points at https://example.com/logo_... which the browser cannot load; splash-tagline still renders. Once main agent resets legacy CMS or upstream ships a non-empty logo.url, splash-logo will render."
+  ],
+  "updated_files": [
+    "/app/test_reports/iteration_8.json",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "success_rate": {
+    "backend": "100% — 19/19 pytest passing in 1.89s (test_mobile_api 10/10 + test_cms_split 6/6 + test_upstream_auth 3/3).",
+    "frontend": "100% — Splash renders (no crash), Welcome renders with CMS heading/subtext, tap-through works, Home renders with banner + announcement string + featured products, 0 pageerrors, 0 console errors across full flow. Re-navigation to /(tabs)/home also produces no crash."
+  },
+  "seed_data_creation": "Preserved iteration_7's seed values in /api/mobile/cms (welcomeHeading=TEST_welcome_head_1785811848 etc.) and added one more announcement update via authorised PUT (announcement=CMS_LIVE_1785811916) during refresh-on-open verification. As documented in action_items, main agent may want to reset these.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "This iteration confirms the CMS split-endpoint fix is complete and no further retest is required unless the upstream schema changes. If the upstream begins returning active-window announcements (startsAt<=now<=endsAt), pickActiveAnnouncement will pick from active[] first — verify by inspecting upstream /api/cms/announcements items' dates. Currently upstream items are Aug 2026 (future), so fallback branch fires; both branches return item.message (string), so both are safe. If main agent resets legacy /api/mobile/cms to production values, re-run the same smoke test — Welcome heading should reflect the new legacy value (upstream welcome.items is []) and Home announcement should still show upstream 'Launch Your Store' until upstream is edited or its items expire.",
+  "rca_of_issue": "Iteration_7 crash root cause was the naïve `ann?.announcement ?? ann?.items?.[0]` merge which stored a raw announcement OBJECT ({id,message,type,startsAt,endsAt}) into cms.announcement, which home.tsx then tried to render inside <Text>. The iteration_8 fix replaces that with pickActiveAnnouncement(items) which (a) filters items by startsAt<=now<=endsAt time window, (b) requires message to be a non-empty string, (c) falls back to items.find(...message string...) when no active item exists, and (d) returns item.message (a string) — never an object. Combined with pickString() enforcing string-type-and-non-empty on every returned field of fetchMobileCMS, the class of 'object rendered as text' crashes is now structurally prevented for CMS content. Reproduction of the original bug is no longer possible against the current upstream schema; verified end-to-end on preview URL."
+}

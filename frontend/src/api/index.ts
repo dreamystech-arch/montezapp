@@ -202,50 +202,85 @@ export async function fetchAdminProducts() {
 // ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
 // CMS: split-per-section endpoints at /api/cms/{splash|logo|banner|announcements|welcome}.
-// Prefers the upstream site backend if those routes are live, else falls back
-// to our local supplementary backend which serves the same shapes.
+// Prefers the upstream site backend if those routes return data, else falls
+// back to our local supplementary backend (which the site admin also feeds).
+// Upstream schema differs from local — this helper normalises both shapes.
 // ---------------------------------------------------------------------------
-async function fetchCMSSection<T>(path: string): Promise<T | null> {
+async function fetchUpstreamCMS<T>(path: string): Promise<T | null> {
   try {
     return await upstream<T>(path);
   } catch {
-    try {
-      return await local<T>(path);
-    } catch {
-      return null;
-    }
+    return null;
   }
+}
+
+async function fetchLocalCMS<T>(path: string): Promise<T | null> {
+  try {
+    return await local<T>(path);
+  } catch {
+    return null;
+  }
+}
+
+type UpstreamSplash = { image?: string; backgroundColor?: string; tagline?: string; durationMs?: number };
+type UpstreamLogo = { url?: string; darkUrl?: string };
+type UpstreamBannerItem = { image?: string; title?: string; subtitle?: string; ctaText?: string; ctaLink?: string };
+type UpstreamAnnouncement = { message?: string; type?: string; startsAt?: string; endsAt?: string };
+type UpstreamWelcomeItem = { image?: string; heading?: string; subtext?: string; title?: string; subtitle?: string };
+
+function pickString(...vals: (string | null | undefined)[]): string | undefined {
+  for (const v of vals) if (typeof v === "string" && v.trim() !== "") return v;
+  return undefined;
+}
+
+function pickActiveAnnouncement(items: UpstreamAnnouncement[] | undefined): string | undefined {
+  if (!Array.isArray(items) || items.length === 0) return undefined;
+  const now = Date.now();
+  const active = items.filter((a) => {
+    const start = a.startsAt ? Date.parse(a.startsAt) : -Infinity;
+    const end = a.endsAt ? Date.parse(a.endsAt) : Infinity;
+    return start <= now && now <= end && typeof a.message === "string" && a.message.trim() !== "";
+  });
+  const chosen = active[0] ?? items.find((a) => typeof a.message === "string" && a.message.trim() !== "");
+  return chosen?.message;
 }
 
 export async function fetchMobileCMS(): Promise<MobileCMS> {
   const [splash, logo, banner, ann, welcome, legacy] = await Promise.all([
-    fetchCMSSection<{ splashImage?: string; splashDurationMs?: number }>("/api/cms/splash"),
-    fetchCMSSection<{ appLogo?: string }>("/api/cms/logo"),
-    fetchCMSSection<{ homeBannerImage?: string; homeBannerText?: string }>("/api/cms/banner"),
-    fetchCMSSection<{ items?: string[]; announcement?: string }>("/api/cms/announcements"),
-    fetchCMSSection<{
-      welcomeHeading?: string;
-      welcomeSubtext?: string;
-      welcomeImage?: string;
-      slides?: { heading?: string; subtext?: string; image?: string }[];
-    }>("/api/cms/welcome"),
-    // Legacy singleton — filler for any field neither the upstream nor split
-    // endpoints provide. This is our safety net so old admin data still shows.
-    local<{ cms: MobileCMS }>("/api/mobile/cms").then((r) => r.cms).catch(() => null),
+    fetchUpstreamCMS<UpstreamSplash>("/api/cms/splash"),
+    fetchUpstreamCMS<UpstreamLogo>("/api/cms/logo"),
+    fetchUpstreamCMS<{ items?: UpstreamBannerItem[] }>("/api/cms/banner"),
+    fetchUpstreamCMS<{ items?: UpstreamAnnouncement[] }>("/api/cms/announcements"),
+    fetchUpstreamCMS<{ items?: UpstreamWelcomeItem[] }>("/api/cms/welcome"),
+    fetchLocalCMS<{ cms: MobileCMS }>("/api/mobile/cms").then((r) => r?.cms ?? null),
   ]);
 
-  const firstSlide = welcome?.slides?.[0];
+  const bannerItem = banner?.items?.[0];
+  const welcomeItem = welcome?.items?.[0];
+  const upstreamAnnouncement = pickActiveAnnouncement(ann?.items);
+
+  const splashImage = pickString(absolutiseMediaUrl(splash?.image), legacy?.splashImage) ?? "";
+  const splashDurationMs = splash?.durationMs ?? legacy?.splashDurationMs ?? 1600;
+  const appLogo = pickString(absolutiseMediaUrl(logo?.url), legacy?.appLogo) ?? "";
+  const homeBannerImage =
+    pickString(absolutiseMediaUrl(bannerItem?.image), legacy?.homeBannerImage) ?? "";
+  const homeBannerText =
+    pickString(bannerItem?.title, bannerItem?.subtitle, legacy?.homeBannerText) ?? "";
+  const announcement = pickString(upstreamAnnouncement, legacy?.announcement) ?? "";
+  const welcomeHeading = pickString(welcomeItem?.heading, welcomeItem?.title, legacy?.welcomeHeading) ?? "";
+  const welcomeSubtext = pickString(welcomeItem?.subtext, welcomeItem?.subtitle, legacy?.welcomeSubtext) ?? "";
+  const welcomeImage = pickString(absolutiseMediaUrl(welcomeItem?.image), legacy?.welcomeImage) ?? "";
 
   return {
-    splashImage: splash?.splashImage ?? legacy?.splashImage ?? "",
-    splashDurationMs: splash?.splashDurationMs ?? legacy?.splashDurationMs ?? 1600,
-    appLogo: logo?.appLogo ?? legacy?.appLogo ?? "",
-    welcomeHeading: welcome?.welcomeHeading ?? firstSlide?.heading ?? legacy?.welcomeHeading ?? "",
-    welcomeSubtext: welcome?.welcomeSubtext ?? firstSlide?.subtext ?? legacy?.welcomeSubtext ?? "",
-    welcomeImage: welcome?.welcomeImage ?? firstSlide?.image ?? legacy?.welcomeImage ?? "",
-    homeBannerImage: banner?.homeBannerImage ?? legacy?.homeBannerImage ?? "",
-    homeBannerText: banner?.homeBannerText ?? legacy?.homeBannerText ?? "",
-    announcement: ann?.announcement ?? ann?.items?.[0] ?? legacy?.announcement ?? "",
+    splashImage,
+    splashDurationMs,
+    appLogo,
+    welcomeHeading,
+    welcomeSubtext,
+    welcomeImage,
+    homeBannerImage,
+    homeBannerText,
+    announcement,
     updatedAt: legacy?.updatedAt ?? new Date().toISOString(),
   };
 }
