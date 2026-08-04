@@ -1,0 +1,37 @@
+{
+  "summary": "Full backend + frontend verification of CMS hardening (absolutise on PUT + GET, reject local-disk paths) and home banner rendering. Backend: 37/37 pytest tests pass (10 new hardening tests + 27 pre-existing regression). Verified curl PUT rejects /tmp/local.png, file:///etc/passwd, /root/x.png, /var/foo.jpg, /home/user/img.jpg, /mnt/data/img.png each with HTTP 400 and body 'homeBannerImage must be an absolute URL — local-disk paths are not allowed'. Verified curl PUT with '/api/media/xyz' stores absolute 'https://enterprise-supply-1.emergent.host/api/media/xyz' and GET reflects same. Verified legacy relative path written directly via motor to mongo (/api/media/LEGACY_relative_xyz) is absolutised on GET for both /api/mobile/cms and /api/cms/banner. Shape alignment verified: /api/cms/splash exposes both image+splashImage and durationMs+splashDurationMs; /api/cms/logo exposes both url+appLogo; /api/cms/banner returns items[{image,title,subtitle,ctaText,ctaLink}] (empty [] when no image); /api/cms/announcements items[{message,type,startsAt,endsAt}]; /api/cms/welcome items[{image,heading,subtext}]. Frontend absolutiseMediaUrl scrubbing: 11/11 fixture tests pass — blob:/data:/file:/content: and /tmp/, /var/, /root/, /home/, /mnt/ prefixes all return undefined; /api/media/abc becomes absolute; https:// unsplash and enterprise-supply URLs left unchanged. LIVE Home banner @ 390x844: testID home-banner-image renders at x=0, w=390, h=219.375, edge-to-edge. Underlying <img> src = https://enterprise-supply-1.emergent.host/api/media/65133fa3-fca2-4d72-9041-fee1bb79b83b — HTTP 200 image/png, 1,387,560 bytes, naturalWidth=1870, complete=true. All other media images on home also load. No red screen, no critical console errors.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_cms_hardening.py",
+    "/app/backend/tests/test_cms_split.py",
+    "/app/backend/tests/test_mobile_api.py",
+    "/app/backend/tests/test_footer.py",
+    "/app/backend/tests/test_upstream_auth.py",
+    "/app/frontend/tests/test_absolutise.mjs",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py: _absolutise_url correctly rejects local-disk prefixes and prefixes '/'-relative paths with PUBLIC_MEDIA_BASE. Applied consistently on PUT (raises 400) and GET (silent absolutisation).",
+    "server.py: PUBLIC_MEDIA_BASE derives from PUBLIC_MEDIA_BASE || MONTEZ_BACKEND_URL with correct rstrip('/'). Env has MONTEZ_BACKEND_URL=https://enterprise-supply-1.emergent.host so all fallbacks resolve correctly.",
+    "server.py /api/cms/banner shape now matches upstream ({items:[{image,title,subtitle,ctaText,ctaLink}], homeBannerImage, homeBannerText}) and returns items:[] when image is empty — verified.",
+    "src/api/index.ts absolutiseMediaUrl correctly scrubs blob:/data:/file:/content: and local-disk prefixes returning undefined. Cross-origin /api/, /media/, /uploads/ paths are re-pointed at UPSTREAM_BASE while true external URLs (unsplash) pass through — verified via 11 fixtures."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_cms_hardening.py (new — 10 tests)",
+    "/app/backend/tests/test_cms_split.py (fixed announcements assertion to match new dict-shape items)",
+    "/app/frontend/tests/test_absolutise.mjs (new — 11 fixtures for absolutiseMediaUrl)"
+  ],
+  "success_rate": {"backend": "100% (37/37)", "frontend": "100% (banner render + 11/11 absolutise fixtures)"},
+  "seed_data_creation": "Test suite writes CMS singleton via PUT to /api/mobile/cms and also seeds a legacy relative-path via motor directly (LEGACY_relative_xyz) to verify GET-side absolutisation. Final state restored to /api/media/65133fa3-fca2-4d72-9041-fee1bb79b83b so home banner keeps rendering.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "All hardening working. Banner absolute URL persistence path: PUT /api/mobile/cms with '/api/...' -> stored as 'https://enterprise-supply-1.emergent.host/api/...' (mongo); GET absolutises again for defense-in-depth. Frontend absolutiseMediaUrl scrubs blob/data/file/content/local-disk. Live home banner renders edge-to-edge at 390x844 with the expected 1.3MB image/png.",
+  "rca_of_issue": "N/A — verification-only iteration. Root cause of the original bug (main-agent already fixed): banner image was being persisted/served as relative path or local-disk path; now hardened at three layers (server PUT reject+absolutise, server GET absolutise, frontend scrub)."
+}

@@ -16,22 +16,28 @@ import type {
 // ---------------------------------------------------------------------------
 function absolutiseMediaUrl(u?: string | null): string | undefined {
   if (!u) return undefined;
+  const s = String(u).trim();
+  if (s === "") return undefined;
+  // Scrub anything that clearly points at ephemeral / local-disk storage.
+  // These never render across process boundaries and should never reach <Image>.
+  if (/^(blob:|data:|file:|content:)/i.test(s)) return undefined;
+  if (/^(\/tmp\/|\/var\/|\/root\/|\/home\/|\/mnt\/)/.test(s)) return undefined;
   // Already an absolute URL pointing at the correct origin
-  if (u.startsWith(UPSTREAM_BASE)) return u;
+  if (s.startsWith(UPSTREAM_BASE)) return s;
   // Absolute URL pointing at some other origin (e.g. https://montezinfobyte.com/api/media/...)
   // — swap the origin for our known API base so the media resolves via the app's backend.
-  const otherOriginMatch = u.match(/^https?:\/\/[^/]+(\/.*)$/);
+  const otherOriginMatch = s.match(/^https?:\/\/[^/]+(\/.*)$/);
   if (otherOriginMatch) {
     const path = otherOriginMatch[1];
     // Only re-point paths that look like media assets; leave true external URLs (e.g. unsplash) alone.
     if (path.startsWith("/api/") || path.startsWith("/media/") || path.startsWith("/uploads/")) {
       return `${UPSTREAM_BASE}${path}`;
     }
-    return u;
+    return s;
   }
   // Relative paths → prefix with the base API URL.
-  if (u.startsWith("/")) return `${UPSTREAM_BASE}${u}`;
-  return u;
+  if (s.startsWith("/")) return `${UPSTREAM_BASE}${s}`;
+  return s;
 }
 
 function normaliseProductMedia(p: Product): Product {

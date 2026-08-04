@@ -139,13 +139,52 @@ async def root():
 # ---------------------------------------------------------------------------
 # Mobile CMS
 # ---------------------------------------------------------------------------
+PUBLIC_MEDIA_BASE = os.environ.get(
+    "PUBLIC_MEDIA_BASE",
+    os.environ.get("MONTEZ_BACKEND_URL", "https://enterprise-supply-1.emergent.host"),
+).rstrip("/")
+
+LOCAL_FS_PREFIXES = ("file://", "/tmp/", "/var/", "/root/", "/home/", "/mnt/")
+
+
+def _absolutise_url(u):
+    """Ensure any image URL persisted or returned is an absolute HTTPS URL.
+
+    - Rejects local-disk paths so nothing served from ephemeral disk sneaks in.
+    - Prefixes relative paths (starting with `/`) with PUBLIC_MEDIA_BASE.
+    - Leaves already-absolute http(s) URLs untouched.
+    """
+    if u is None or not isinstance(u, str):
+        return u
+    s = u.strip()
+    if s == "":
+        return s
+    if any(s.lower().startswith(p) for p in LOCAL_FS_PREFIXES):
+        return ""  # scrub — never serve local-disk paths to the app
+    if s.startswith("http://") or s.startswith("https://"):
+        return s
+    if s.startswith("/"):
+        return f"{PUBLIC_MEDIA_BASE}{s}"
+    return s
+
+
+def _absolutise_cms(doc: dict) -> dict:
+    """Return a copy of the CMS doc with every image field absolutised."""
+    out = dict(doc)
+    for key in ("splashImage", "appLogo", "homeBannerImage", "welcomeImage"):
+        if key in out:
+            out[key] = _absolutise_url(out[key])
+    # Footer may reference logos via absolute URLs already; nothing to rewrite there.
+    return out
+
+
 async def _get_cms_doc() -> dict:
     doc = await db.mobile_cms.find_one({"_id": "singleton"}, {"_id": 0})
     if not doc:
         default = MobileCMS().model_dump()
         await db.mobile_cms.insert_one({"_id": "singleton", **default})
-        return default
-    return doc
+        doc = default
+    return _absolutise_cms(doc)
 
 
 @api_router.get("/mobile/cms")
@@ -158,7 +197,9 @@ async def get_mobile_cms():
 async def get_cms_splash():
     doc = await _get_cms_doc()
     return {
+        "image": doc.get("splashImage"),
         "splashImage": doc.get("splashImage"),
+        "durationMs": doc.get("splashDurationMs"),
         "splashDurationMs": doc.get("splashDurationMs"),
     }
 
@@ -166,15 +207,22 @@ async def get_cms_splash():
 @api_router.get("/cms/logo")
 async def get_cms_logo():
     doc = await _get_cms_doc()
-    return {"appLogo": doc.get("appLogo")}
+    return {"url": doc.get("appLogo"), "appLogo": doc.get("appLogo")}
 
 
 @api_router.get("/cms/banner")
 async def get_cms_banner():
+    """Return the same shape as upstream (items[]) so the frontend can consume
+    either source with the same parser. Image is always an absolute URL."""
     doc = await _get_cms_doc()
+    image = doc.get("homeBannerImage") or ""
+    title = doc.get("homeBannerText") or ""
     return {
-        "homeBannerImage": doc.get("homeBannerImage"),
-        "homeBannerText": doc.get("homeBannerText"),
+        "items": [{"image": image, "title": title, "subtitle": "", "ctaText": "", "ctaLink": ""}]
+        if image
+        else [],
+        "homeBannerImage": image,
+        "homeBannerText": title,
     }
 
 
@@ -182,25 +230,29 @@ async def get_cms_banner():
 async def get_cms_announcements():
     doc = await _get_cms_doc()
     text = doc.get("announcement") or ""
-    items = [text] if text else []
+    items = (
+        [{"message": text, "type": "info", "startsAt": None, "endsAt": None}] if text else []
+    )
     return {"items": items, "announcement": text}
 
 
 @api_router.get("/cms/welcome")
 async def get_cms_welcome():
     doc = await _get_cms_doc()
-    slides = [
-        {
-            "heading": doc.get("welcomeHeading"),
-            "subtext": doc.get("welcomeSubtext"),
-            "image": doc.get("welcomeImage"),
-        }
-    ]
+    image = doc.get("welcomeImage") or ""
+    heading = doc.get("welcomeHeading") or ""
+    subtext = doc.get("welcomeSubtext") or ""
+    items = (
+        [{"image": image, "heading": heading, "subtext": subtext}]
+        if (image or heading or subtext)
+        else []
+    )
     return {
-        "welcomeHeading": doc.get("welcomeHeading"),
-        "welcomeSubtext": doc.get("welcomeSubtext"),
-        "welcomeImage": doc.get("welcomeImage"),
-        "slides": slides,
+        "items": items,
+        "welcomeHeading": heading,
+        "welcomeSubtext": subtext,
+        "welcomeImage": image,
+        "slides": items,
     }
 
 
@@ -223,6 +275,16 @@ async def update_mobile_cms(
 ):
     _check_admin(x_admin_token)
     patch = {k: v for k, v in body.model_dump().items() if v is not None}
+    # Absolutise + scrub local-disk paths on every image field before persisting.
+    for key in ("splashImage", "appLogo", "homeBannerImage", "welcomeImage"):
+        if key in patch:
+            normalised = _absolutise_url(patch[key])
+            if not normalised:
+                raise HTTPException(
+                    400,
+                    f"{key} must be an absolute URL — local-disk paths are not allowed",
+                )
+            patch[key] = normalised
     patch["updatedAt"] = now_utc().isoformat()
     await db.mobile_cms.update_one({"_id": "singleton"}, {"$set": patch}, upsert=True)
     return {"cms": await _get_cms_doc()}

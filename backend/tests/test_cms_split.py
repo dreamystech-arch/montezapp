@@ -88,10 +88,13 @@ class TestCMSSingletonPropagation:
         assert j["homeBannerImage"] == payload["homeBannerImage"]
         assert j["homeBannerText"] == payload["homeBannerText"]
 
-        # Announcements
+        # Announcements (items[] is now array of dict-shape objects to match upstream)
         j = api.get(f"{BASE_URL}/api/cms/announcements").json()
         assert j["announcement"] == payload["announcement"]
-        assert payload["announcement"] in j["items"]
+        assert any(
+            isinstance(it, dict) and it.get("message") == payload["announcement"]
+            for it in j["items"]
+        )
 
         # Welcome
         j = api.get(f"{BASE_URL}/api/cms/welcome").json()
