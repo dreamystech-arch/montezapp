@@ -98,7 +98,7 @@ export default function HomeScreen() {
                 onPress={() => router.push("/(tabs)/products")}
                 testID="home-banner"
               >
-                <Image source={{ uri: bannerImage }} style={styles.bannerImage} testID="home-banner-image" />
+                <Image source={{ uri: bannerImage }} style={styles.bannerImage} resizeMode="cover" testID="home-banner-image" />
               </TouchableOpacity>
             ) : null}
 
@@ -183,7 +183,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surfaceTertiary,
     marginBottom: spacing.lg,
   },
-  bannerImage: { width: "100%", height: "100%", resizeMode: "cover" },
+  bannerImage: { width: "100%", height: "100%" },
   bannerText: { position: "absolute", left: 20, right: 20, bottom: 16 },
   bannerBadge: {
     color: "#FFFFFF",
