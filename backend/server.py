@@ -62,6 +62,35 @@ class MobileCMS(BaseModel):
     homeBannerImage: str = "https://images.unsplash.com/photo-1587293852726-70cdb56c2866?crop=entropy&cs=srgb&fm=jpg&q=85&w=1600"
     homeBannerText: str = "Verified Manufacturers • Transparent Pricing • Pan-India Delivery"
     announcement: str = "Free samples on select SKUs. Dispatch in 3-7 days."
+    footer: dict = Field(
+        default_factory=lambda: {
+            "about": "Montez Infobyte connects verified Indian manufacturers, suppliers and businesses through one powerful B2B platform.",
+            "quickLinks": [
+                {"label": "About", "href": "https://montezinfobyte.com/about"},
+                {"label": "Products", "href": "https://montezinfobyte.com/products"},
+                {"label": "RFQ", "href": "https://montezinfobyte.com/rfq"},
+                {"label": "Contact", "href": "https://montezinfobyte.com/contact"},
+                {"label": "Get Your Store", "href": "https://montezinfobyte.com/get-your-store"},
+            ],
+            "contactColumns": [
+                {"title": "Contact", "lines": ["+91 7639533953", "montez.spprt@gmail.com"]},
+                {
+                    "title": "Address",
+                    "lines": [
+                        "Door No 76, F2, 3rd Annai, Abirami Nagar",
+                        "Thiruverkadu, Chennai – 600077",
+                        "Tamil Nadu, India",
+                    ],
+                },
+            ],
+            "socials": [
+                {"label": "Facebook", "href": "https://www.facebook.com/montezinfobyte/", "icon": "logo-facebook"},
+                {"label": "Instagram", "href": "https://www.instagram.com/montezinfobyte", "icon": "logo-instagram"},
+                {"label": "LinkedIn", "href": "https://www.linkedin.com/company/montezinfobyte", "icon": "logo-linkedin"},
+            ],
+            "copyright": "© 2026 Montez Infobyte Private Limited. All rights reserved.",
+        }
+    )
     updatedAt: str = Field(default_factory=lambda: now_utc().isoformat())
 
 
@@ -75,6 +104,7 @@ class MobileCMSUpdate(BaseModel):
     homeBannerImage: Optional[str] = None
     homeBannerText: Optional[str] = None
     announcement: Optional[str] = None
+    footer: Optional[dict] = None
 
 
 class OtpSendBody(BaseModel):
@@ -172,6 +202,13 @@ async def get_cms_welcome():
         "welcomeImage": doc.get("welcomeImage"),
         "slides": slides,
     }
+
+
+@api_router.get("/cms/footer")
+async def get_cms_footer():
+    doc = await _get_cms_doc()
+    footer = doc.get("footer") or MobileCMS().footer
+    return footer
 
 
 def _check_admin(x_admin_token: Optional[str]):

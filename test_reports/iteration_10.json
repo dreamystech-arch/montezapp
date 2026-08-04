@@ -1,0 +1,51 @@
+{
+  "summary": "All three requested features VERIFIED on live 390x844 preview. (1) BOTTOM TAB BAR: outer tabbar container is 62pt tall (bottom:844, top:782) — matches spec 56+bottomInset(0)+6 on web. Inner tablist row is 49pt centered inside with paddingTop:8/paddingBottom:4. Labels+icons fully visible, no clipping. Verified via DOM measure on the fixed-position ancestor of role=tablist. (2) GET YOUR STORE TAB: label 'Get Your Store' renders (storefront-outline icon); the old 'RFQ' label does NOT appear on the tab bar. Tapping the tab does NOT navigate to /rfq (URL stayed on /home) and Linking.openURL('https://montezinfobyte.com/get-your-store') is invoked — captured through window.open interception. Note: React Navigation's web renderer does NOT forward `tabBarTestID` prop as `data-testid` on tab items — tab items expose role='tab' + href='/rfq'; this is a web-only quirk (works in native builds). (3) RFQ SCREEN STILL REACHABLE: Products → first product card → 'Request Quote' button routes to /rfq?productSlug=…&productName=…&category=…; RFQ form testIDs all present (rfq-name-input, rfq-email-input, rfq-phone-input, rfq-category-input, rfq-quantity-input, rfq-description-input, rfq-submit-button, rfq-back-button). tabPress listener does not interfere with programmatic router.push. (4) SITE FOOTER on Home: site-footer, footer-logo (Montez Infobyte brand), footer-about, footer-quick-links (About/Products/Get Your Store/Contact), footer-column-contact ('+91 7639533953', 'montez.spprt@gmail.com'), footer-column-address (Chennai lines), footer-socials with footer-social-facebook/instagram/linkedin, footer-copyright '© 2026 Montez Infobyte Private Limited. All rights reserved.' Verified via 29 testIDs collected from DOM. (5) FOOTER ADMIN-MANAGEABLE: pytest test_admin_patch_updates_footer PUTs {footer:{about,copyright,quickLinks,contactColumns,socials}} with X-Admin-Token: montez-admin-2026 → GET /api/cms/footer reflects the new values; legacy /api/mobile/cms.cms.footer also matches. (6) Cleanup: removed a duplicate `app.include_router(api_router)` + `add_middleware(CORSMiddleware)` block that lingered at lines 395-409 of server.py (post first assemble). Backend restarts cleanly. BACKEND PYTEST: 22/22 passing in 2s (10 mobile_api + 6 cms_split + 3 upstream_auth + 3 new footer tests). Upstream `/api/cms/footer` returns 404 today, so the frontend correctly falls through to local `/api/cms/footer` — verified footer body on live UI matches local seeded values. REGRESSIONS clean: home banner is image-only (no overlay), splash logo, home logo, announcement pill 'Get Discount', stats block, 8 featured product cards, product detail, RFQ form all render correctly. Carried-over non-blocking RN warnings persist (shadow*/style.resizeMode/pointerEvents from expo-router).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "Tab bar testIDs on web preview", "issue": "React Navigation's web renderer does not forward the `tabBarTestID` option to a `data-testid` on the tab item. Automation must select tab items via `a[href=\"/rfq\"]` etc. Not a functional bug — testIDs work on native builds.", "affected_testIDs": ["tab-home","tab-products","tab-get-your-store","tab-contact","tab-account"]}
+    ],
+    "design_issues": [],
+    "react_native_issues": [
+      {"component": "shadow* style props", "issue": "'shadow*' style props deprecated warning; migrate to `boxShadow`. Reference: /app/frontend/app/(tabs)/home.tsx (shadow.card via theme), /app/frontend/app/(tabs)/contact.tsx (shadow.card via theme)."},
+      {"component": "Image style.resizeMode", "issue": "Image: style.resizeMode is deprecated, use props.resizeMode. Reference: /app/frontend/app/welcome.tsx:64 (carried over)."},
+      {"component": "pointerEvents", "issue": "pointerEvents is deprecated; warning largely from expo-router internals but auditable."}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_mobile_api.py",
+    "/app/backend/tests/test_cms_split.py",
+    "/app/backend/tests/test_upstream_auth.py",
+    "/app/backend/tests/test_footer.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "OPTIONAL: React Navigation web does not propagate tabBarTestID to `data-testid`. If you need automated tab tapping on the web preview, either (a) wrap each tab in a custom `tabBarButton` that forwards `testID` to the pressable, or document that automation should use `a[href=\"/rfq\"]` etc. Not blocking.",
+    "OPTIONAL (carried over from iteration_8/9): legacy /api/mobile/cms singleton still holds TEST_welcome_head_1785821436 / TEST_welcome_sub_1785821436 from earlier test runs — visible on the Welcome screen. Reset via PUT /api/mobile/cms with X-Admin-Token: montez-admin-2026 or wait for upstream welcomeSlides to populate.",
+    "OPTIONAL RN deprecations (carried over): migrate theme.shadow.card → boxShadow, welcome.tsx:64 Image style.resizeMode → props.resizeMode."
+  ],
+  "critical_code_review_comments": [
+    "FIXED THIS ITERATION: /app/backend/server.py had a duplicate `app.include_router(api_router)` + CORS middleware block after the first assemble section (previously lines 395-409). Removed. Server restarts cleanly and pytest 22/22 passes.",
+    "GOOD: /app/frontend/app/(tabs)/_layout.tsx correctly derives tabBarStyle.height = 56 + max(insets.bottom, Platform.OS==='android'?8:0) + 6 with paddingBottom = bottomInset + 4 and paddingTop = 8 via useSafeAreaInsets(). Web preview measures outer bar at 62pt (top:782, height:62 in 844pt viewport) — matches formula.",
+    "GOOD: tabPress listener on the RFQ screen calls e.preventDefault() then Linking.openURL('https://montezinfobyte.com/get-your-store'). Verified via window.open interception on live preview — URL did not change and openURL was invoked. RFQ screen still reachable via router.push in ProductDetail's Request Quote button.",
+    "GOOD: /app/frontend/src/components/SiteFooter.tsx guards on `hasAnyContent` and renders nothing when empty. All expected testIDs present. Slug derivation handles multi-word labels (`get-your-store`).",
+    "GOOD: /app/frontend/src/api/index.ts fetchMobileCMS() footer resolution order is correct: upstream `/api/cms/footer` → appSettings.settings.footer → local `/api/cms/footer` → legacy mobile CMS singleton. Confirmed: upstream currently returns 404, so local seeded footer (with real About/QuickLinks/Contact/Socials/Copyright) renders on the UI.",
+    "GOOD: /app/backend/server.py MobileCMS.footer default is a rich dict with about, quickLinks[5], contactColumns[2] (Contact + Address), socials[3] (FB/IG/LN), copyright. MobileCMSUpdate accepts partial `footer` patches and the singleton merges via $set. `_get_cms_doc()` seeds default on empty."
+  ],
+  "updated_files": [
+    "/app/backend/server.py (removed duplicate include_router + add_middleware block)",
+    "/app/backend/tests/test_footer.py (new — 3 tests for /api/cms/footer + admin patch + auth guard)",
+    "/app/test_reports/iteration_10.json",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "success_rate": {
+    "backend": "100% — 22/22 pytest passing in ~2s (10 mobile_api + 6 cms_split + 3 upstream_auth + 3 new footer).",
+    "frontend": "100% — Tab bar height 62pt verified, Get Your Store tab opens external URL without in-app navigation, RFQ reachable via product detail, SiteFooter renders on Home with all 12+ testIDs and correct CMS-fed content. Contact tab footer also renders (via ScrollView bottom)."
+  },
+  "seed_data_creation": "test_admin_patch_updates_footer mutates footer.about/copyright/quickLinks/contactColumns/socials to TEST_ values during the run; after the run I restored a full production-shaped footer via PUT /api/mobile/cms so the live preview shows the intended values.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Three verified changes this iteration: (a) tab bar geometry via useSafeAreaInsets() — outer bar 62pt on web; (b) RFQ tab renamed to 'Get Your Store' (storefront-outline) with tabPress listener that preventDefault+Linking.openURL('https://montezinfobyte.com/get-your-store'); (c) new /api/cms/footer endpoint + SiteFooter component mounted on Home (as ListFooterComponent) and Contact (bottom of ScrollView). KEY GOTCHA: React Navigation web does NOT surface `tabBarTestID` as data-testid on tab items; use `a[href=\"/rfq\"]` etc. for web automation. Upstream `/api/cms/footer` returns 404 today, so frontend uses local footer. All 22 pytest tests pass.",
+  "rca_of_issue": "Not applicable — feature request rather than bug. Implementation was verified end-to-end. The only pre-existing latent defect found was a duplicate `app.include_router` + `add_middleware(CORSMiddleware)` block in server.py that survived a prior autofix; harmless (routes register once — FastAPI treats duplicate registrations idempotently for GET/PUT/POST on same path) but noisy. Removed."
+}

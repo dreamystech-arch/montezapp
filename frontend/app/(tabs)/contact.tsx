@@ -3,6 +3,7 @@ import { Linking, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "r
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { useApp } from "@/src/context/AppContext";
+import { SiteFooter } from "@/src/components/SiteFooter";
 import { colors, font, radius, shadow, spacing } from "@/src/theme";
 
 type IconName = React.ComponentProps<typeof Ionicons>["name"];
@@ -109,6 +110,7 @@ export default function ContactScreen() {
             </View>
           </>
         ) : null}
+        <SiteFooter />
       </ScrollView>
     </SafeAreaView>
   );

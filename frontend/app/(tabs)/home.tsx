@@ -16,6 +16,7 @@ import { useFocusEffect, useRouter } from "expo-router";
 import { fetchProducts } from "@/src/api";
 import type { Product } from "@/src/api/types";
 import { ProductCard } from "@/src/components/ProductCard";
+import { SiteFooter } from "@/src/components/SiteFooter";
 import { useApp } from "@/src/context/AppContext";
 import { registerForPushAsync } from "@/src/utils/push";
 import { colors, font, radius, shadow, spacing } from "@/src/theme";
@@ -139,6 +140,7 @@ export default function HomeScreen() {
             </View>
           )
         }
+        ListFooterComponent={<SiteFooter />}
         testID="home-featured-list"
       />
     </SafeAreaView>

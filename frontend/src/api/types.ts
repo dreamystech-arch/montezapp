@@ -43,6 +43,17 @@ export type SiteSettings = {
   faviconUrl: string;
 };
 
+export type FooterLink = { label: string; href: string };
+export type FooterContactColumn = { title: string; lines: string[] };
+export type FooterSocial = { label: string; href: string; icon?: string };
+export type Footer = {
+  about?: string;
+  quickLinks?: FooterLink[];
+  contactColumns?: FooterContactColumn[];
+  socials?: FooterSocial[];
+  copyright?: string;
+};
+
 export type MobileCMS = {
   splashImage: string;
   splashDurationMs: number;
@@ -53,6 +64,7 @@ export type MobileCMS = {
   homeBannerImage: string;
   homeBannerText: string;
   announcement: string;
+  footer?: Footer;
   updatedAt: string;
 };
 

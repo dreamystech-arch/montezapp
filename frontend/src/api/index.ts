@@ -1,6 +1,7 @@
 import { local, upstream, UPSTREAM_BASE } from "./client";
 import type {
   Category,
+  Footer,
   MobileCMS,
   Product,
   RFQ,
@@ -246,14 +247,16 @@ function pickActiveAnnouncement(items: UpstreamAnnouncement[] | undefined): stri
 }
 
 export async function fetchMobileCMS(): Promise<MobileCMS> {
-  const [splash, logo, banner, ann, welcome, appSettings, siteSettings, legacy] = await Promise.all([
+  const [splash, logo, banner, ann, welcome, footer, appSettings, siteSettings, legacy] = await Promise.all([
     fetchUpstreamCMS<UpstreamSplash>("/api/cms/splash"),
     fetchUpstreamCMS<UpstreamLogo>("/api/cms/logo"),
     fetchUpstreamCMS<{ items?: UpstreamBannerItem[] }>("/api/cms/banner"),
     fetchUpstreamCMS<{ items?: UpstreamAnnouncement[] }>("/api/cms/announcements"),
     fetchUpstreamCMS<{ items?: UpstreamWelcomeItem[] }>("/api/cms/welcome"),
-    // /api/app-settings aggregates the same CMS values — provides another
-    // source when the split endpoints are empty. Its `logo.url` is authoritative.
+    // Footer: upstream first, then local supplementary.
+    fetchUpstreamCMS<Footer>("/api/cms/footer").then((r) =>
+      r && (r.about || r.quickLinks || r.contactColumns || r.socials || r.copyright) ? r : null,
+    ),
     fetchUpstreamCMS<{
       settings?: {
         logo?: { url?: string; darkUrl?: string };
@@ -261,14 +264,16 @@ export async function fetchMobileCMS(): Promise<MobileCMS> {
         welcomeSlides?: UpstreamWelcomeItem[];
         homeBanners?: (UpstreamBannerItem & { active?: boolean })[];
         announcements?: (UpstreamAnnouncement & { active?: boolean })[];
+        footer?: Footer;
       };
     }>("/api/app-settings"),
-    // Final upstream logo source — the site-wide /api/settings.logoUrl is the
-    // real product logo, used across the marketing site.
     fetchUpstreamCMS<{ settings?: { logoUrl?: string } }>("/api/settings"),
-    // Legacy /api/mobile/cms singleton — filler for any field still missing.
     fetchLocalCMS<{ cms: MobileCMS }>("/api/mobile/cms").then((r) => r?.cms ?? null),
   ]);
+
+  const localFooter = await fetchLocalCMS<Footer>("/api/cms/footer");
+  const resolvedFooter: Footer | undefined =
+    footer ?? appSettings?.settings?.footer ?? localFooter ?? legacy?.footer;
 
   const appLogoUrl = appSettings?.settings?.logo?.url;
   const siteLogoUrl = siteSettings?.settings?.logoUrl;
@@ -324,6 +329,7 @@ export async function fetchMobileCMS(): Promise<MobileCMS> {
     homeBannerImage,
     homeBannerText,
     announcement,
+    footer: resolvedFooter,
     updatedAt: legacy?.updatedAt ?? new Date().toISOString(),
   };
 }

@@ -1,8 +1,11 @@
 import { Tabs } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { Platform, StyleSheet } from "react-native";
+import { Linking, Platform, StyleSheet } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { colors } from "@/src/theme";
+
+const GET_YOUR_STORE_URL = "https://montezinfobyte.com/get-your-store";
 
 type IconName = React.ComponentProps<typeof Ionicons>["name"];
 
@@ -15,6 +18,12 @@ function tabIcon(name: IconName) {
 }
 
 export default function TabsLayout() {
+  const insets = useSafeAreaInsets();
+  // Comfortable tap target: 56pt visible tab + generous top padding + real
+  // safe-area bottom inset (home indicator / gesture bar).
+  const bottomInset = Math.max(insets.bottom, Platform.OS === "android" ? 8 : 0);
+  const tabBarHeight = 56 + bottomInset + 6; // 6pt breathing room above icon
+
   return (
     <Tabs
       screenOptions={{
@@ -25,10 +34,12 @@ export default function TabsLayout() {
           backgroundColor: colors.surface,
           borderTopColor: colors.border,
           borderTopWidth: StyleSheet.hairlineWidth,
-          height: Platform.OS === "ios" ? 84 : 62,
-          paddingTop: 6,
+          height: tabBarHeight,
+          paddingTop: 8,
+          paddingBottom: bottomInset + 4,
         },
         tabBarLabelStyle: { fontSize: 11, fontWeight: "500" },
+        tabBarItemStyle: { paddingVertical: 4 },
       }}
     >
       <Tabs.Screen
@@ -41,7 +52,20 @@ export default function TabsLayout() {
       />
       <Tabs.Screen
         name="rfq"
-        options={{ title: "RFQ", tabBarIcon: tabIcon("document-text-outline"), tabBarTestID: "tab-rfq" }}
+        options={{
+          title: "Get Your Store",
+          tabBarIcon: tabIcon("storefront-outline"),
+          tabBarTestID: "tab-get-your-store",
+        }}
+        listeners={{
+          tabPress: (e) => {
+            // Intercept tab press: open external URL instead of navigating to
+            // the RFQ screen. The screen remains reachable via product detail's
+            // Request Quote button which uses router.push with params.
+            e.preventDefault();
+            Linking.openURL(GET_YOUR_STORE_URL).catch(() => {});
+          },
+        }}
       />
       <Tabs.Screen
         name="contact"
