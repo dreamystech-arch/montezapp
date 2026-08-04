@@ -176,14 +176,14 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   bannerWrap: {
-    marginHorizontal: spacing.lg,
-    borderRadius: radius.lg,
+    marginHorizontal: 0,
+    borderRadius: 0,
     overflow: "hidden",
     aspectRatio: 16 / 9,
     backgroundColor: colors.surfaceTertiary,
     marginBottom: spacing.lg,
   },
-  bannerImage: { width: "100%", height: "100%" },
+  bannerImage: { width: "100%", height: "100%", resizeMode: "cover" },
   bannerText: { position: "absolute", left: 20, right: 20, bottom: 16 },
   bannerBadge: {
     color: "#FFFFFF",
