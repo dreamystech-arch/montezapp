@@ -1,20 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
-import {
-  ActivityIndicator,
-  FlatList,
-  Image,
-  RefreshControl,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from "react-native";
+import { ActivityIndicator, FlatList, Image, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useRouter } from "expo-router";
 
-import { fetchProducts } from "@/src/api";
-import type { Product } from "@/src/api/types";
+import { fetchHomeCategories, fetchProducts } from "@/src/api";
+import type { Category, Product } from "@/src/api/types";
 import { ProductCard } from "@/src/components/ProductCard";
 import { SiteFooter } from "@/src/components/SiteFooter";
 import { useApp } from "@/src/context/AppContext";
@@ -26,13 +17,15 @@ export default function HomeScreen() {
   const { cms, settings, refreshBoot, refreshCMS, user } = useApp();
 
   const [products, setProducts] = useState<Product[]>([]);
+  const [homeCategories, setHomeCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
   const load = useCallback(async () => {
     try {
-      const items = await fetchProducts();
+      const [items, cats] = await Promise.all([fetchProducts(), fetchHomeCategories()]);
       setProducts(items.slice(0, 8));
+      setHomeCategories(cats);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -119,6 +112,42 @@ export default function HomeScreen() {
               <StatBlock label="Products" value="10K+" />
               <StatBlock label="Delivered" value="50K+" />
             </View>
+
+            {homeCategories.length > 0 ? (
+              <View testID="home-categories-section">
+                <View style={styles.sectionHeader}>
+                  <Text style={styles.sectionTitle}>Categories</Text>
+                  <TouchableOpacity onPress={() => router.push("/(tabs)/products")}>
+                    <Text style={styles.sectionLink}>See all</Text>
+                  </TouchableOpacity>
+                </View>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.categoriesRow}
+                  testID="home-categories-scroller"
+                >
+                  {homeCategories.map((c) => (
+                    <TouchableOpacity
+                      key={c.slug}
+                      style={styles.categoryCard}
+                      activeOpacity={0.85}
+                      onPress={() =>
+                        router.push({ pathname: "/(tabs)/products", params: { category: c.slug } })
+                      }
+                      testID={`home-category-${c.slug}`}
+                    >
+                      <View style={styles.categoryIconWrap}>
+                        <Ionicons name="pricetag-outline" size={20} color={colors.brand} />
+                      </View>
+                      <Text style={styles.categoryName} numberOfLines={2}>
+                        {c.name}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </View>
+            ) : null}
 
             <View style={styles.sectionHeader}>
               <Text style={styles.sectionTitle}>Featured Products</Text>
@@ -241,4 +270,35 @@ const styles = StyleSheet.create({
   },
   sectionTitle: { color: colors.onSurface, fontSize: font.lg, fontWeight: "500" },
   sectionLink: { color: colors.brand, fontSize: font.base, fontWeight: "500" },
+  categoriesRow: {
+    paddingHorizontal: spacing.lg,
+    gap: spacing.md,
+    paddingBottom: spacing.lg,
+  },
+  categoryCard: {
+    width: 104,
+    padding: spacing.md,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    alignItems: "center",
+    gap: spacing.sm,
+    ...shadow.card,
+  },
+  categoryIconWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: radius.pill,
+    backgroundColor: colors.brandTint,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  categoryName: {
+    fontSize: font.sm,
+    color: colors.onSurface,
+    fontWeight: "500",
+    textAlign: "center",
+    textTransform: "capitalize",
+  },
 });

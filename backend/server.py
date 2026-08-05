@@ -16,7 +16,7 @@ import logging
 import httpx
 from pathlib import Path
 from pydantic import BaseModel, Field
-from typing import List, Optional
+from typing import Dict, List, Optional
 import uuid
 from datetime import datetime, timezone, timedelta
 
@@ -126,6 +126,16 @@ class BroadcastBody(BaseModel):
     title: str
     message: str
     action_url: Optional[str] = None
+
+
+class HomeCategoryEntry(BaseModel):
+    slug: str
+    order: int = 0
+    enabled: bool = True
+
+
+class HomeCategoriesUpdate(BaseModel):
+    items: List[HomeCategoryEntry]
 
 
 # ---------------------------------------------------------------------------
@@ -288,6 +298,121 @@ async def update_mobile_cms(
     patch["updatedAt"] = now_utc().isoformat()
     await db.mobile_cms.update_one({"_id": "singleton"}, {"$set": patch}, upsert=True)
     return {"cms": await _get_cms_doc()}
+
+
+# ---------------------------------------------------------------------------
+# Home categories — admin picks + orders which product categories the mobile
+# app's Home screen surfaces. Backed by mongo `home_categories` collection.
+# ---------------------------------------------------------------------------
+async def _fetch_upstream_categories() -> List[dict]:
+    url = os.environ.get("MONTEZ_BACKEND_URL", "https://enterprise-supply-1.emergent.host")
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client_http:
+            resp = await client_http.get(f"{url}/api/categories")
+            resp.raise_for_status()
+            data = resp.json()
+            return data.get("items") or []
+    except Exception as e:
+        logging.warning(f"upstream categories fetch failed: {e}")
+        return []
+
+
+async def _get_home_category_overrides() -> Dict[str, dict]:
+    cursor = db.home_categories.find({}, {"_id": 0})
+    return {doc["slug"]: doc async for doc in cursor}
+
+
+@api_router.get("/cms/home-categories")
+async def get_public_home_categories():
+    """Public: ordered list of enabled categories for the mobile Home screen.
+
+    Joins live upstream category metadata with the admin's saved overrides.
+    Categories the admin has never touched are omitted from the mobile home
+    view (they only appear once the admin enables them here).
+    """
+    overrides = await _get_home_category_overrides()
+    if not overrides:
+        return {"items": []}
+    cats = await _fetch_upstream_categories()
+    by_slug = {c.get("slug"): c for c in cats if c.get("slug")}
+    merged = []
+    for slug, ov in overrides.items():
+        if not ov.get("enabled", True):
+            continue
+        meta = by_slug.get(slug) or {}
+        merged.append(
+            {
+                "slug": slug,
+                "name": meta.get("name") or slug.replace("-", " ").title(),
+                "icon": meta.get("icon"),
+                "desc": meta.get("desc"),
+                "order": int(ov.get("order", 0)),
+            }
+        )
+    merged.sort(key=lambda c: (c["order"], c["name"].lower()))
+    return {"items": merged}
+
+
+@api_router.get("/admin/home-categories")
+async def get_admin_home_categories(x_admin_token: Optional[str] = Header(default=None)):
+    """Admin: every upstream category + its enabled/order override state, so an
+    admin UI can render checkboxes + drag-order controls."""
+    _check_admin(x_admin_token)
+    overrides = await _get_home_category_overrides()
+    cats = await _fetch_upstream_categories()
+    rows = []
+    for c in cats:
+        slug = c.get("slug")
+        if not slug:
+            continue
+        ov = overrides.get(slug, {})
+        rows.append(
+            {
+                "slug": slug,
+                "name": c.get("name") or slug,
+                "icon": c.get("icon"),
+                "desc": c.get("desc"),
+                "enabled": bool(ov.get("enabled", False)),
+                "order": int(ov.get("order", 999)),
+            }
+        )
+    rows.sort(key=lambda r: (r["order"], r["name"].lower()))
+    return {"items": rows}
+
+
+@api_router.put("/admin/home-categories")
+async def update_admin_home_categories(
+    body: HomeCategoriesUpdate,
+    x_admin_token: Optional[str] = Header(default=None),
+):
+    """Admin: replace the saved home-category selection.
+
+    Accepts `{items: [{slug, order, enabled}]}`. Slugs not present in the
+    request are removed from the selection.
+    """
+    _check_admin(x_admin_token)
+    valid_slugs = {c.get("slug") for c in await _fetch_upstream_categories() if c.get("slug")}
+    kept: List[str] = []
+    for entry in body.items:
+        if valid_slugs and entry.slug not in valid_slugs:
+            # Skip slugs that don't exist upstream — never let admin save typos.
+            continue
+        await db.home_categories.update_one(
+            {"slug": entry.slug},
+            {
+                "$set": {
+                    "slug": entry.slug,
+                    "order": entry.order,
+                    "enabled": entry.enabled,
+                    "updatedAt": now_utc().isoformat(),
+                }
+            },
+            upsert=True,
+        )
+        kept.append(entry.slug)
+    # Delete any previously-saved slug not present in this PUT.
+    await db.home_categories.delete_many({"slug": {"$nin": kept}})
+    return await get_public_home_categories()
 
 
 # ---------------------------------------------------------------------------

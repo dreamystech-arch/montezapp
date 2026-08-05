@@ -80,6 +80,18 @@ export async function fetchCategories() {
   return res.items ?? [];
 }
 
+/** Admin-curated ordered list of enabled categories for the mobile Home screen. */
+export async function fetchHomeCategories() {
+  try {
+    const res = await local<{ items: (Category & { order?: number })[] }>(
+      "/api/cms/home-categories",
+    );
+    return res.items ?? [];
+  } catch {
+    return [];
+  }
+}
+
 export async function fetchSettings() {
   const res = await upstream<{ settings: SiteSettings }>("/api/settings");
   const s = res.settings;

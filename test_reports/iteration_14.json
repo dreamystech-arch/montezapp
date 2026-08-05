@@ -1,0 +1,32 @@
+{
+  "summary": "New feature 'App Homepage Categories' fully verified end-to-end. BACKEND: added /app/backend/tests/test_home_categories.py with 10 pytest cases covering (1) admin GET auth (missing token → 401, wrong token → 401), (2) admin GET returns every upstream category with defaults enabled=false/order=999 and required fields (slug/name/enabled/order), (3) admin PUT without token → 401, (4) public GET requires no auth and returns {items:[]}, (5) full lifecycle PUT with 3 real slugs (apparel order 0 enabled, air-purifiers order 1 disabled, awnings→fallback automotive order 2 enabled) → public returns ONLY the 2 enabled sorted by order, (6) PUT again omitting a slug → it is DELETED (verified via public GET and admin GET showing defaults enabled=false/order=999), (7) invalid slug 'totally-fake-slug-xyz' silently skipped, (8) categories admin never touched do NOT appear in public GET, (9) empty selection → public {items:[]}. Full pytest suite: 47/47 pass (37 previously-passing + 10 new) sequentially, including all existing CMS/mobile-api/footer/upstream-auth tests. FRONTEND: with 3 categories seeded via admin PUT (apparel order 0, air-purifiers order 1, automotive order 2, all enabled), Home tab renders home-categories-section between announcement pill (home-announcement) and Featured Products header. home-categories-scroller is a horizontal ScrollView with 3 cards (home-category-apparel x=16, home-category-air-purifiers x=132, home-category-automotive x=248) — left-to-right order matches the admin's specified order exactly. Tapping home-category-apparel navigates to /(tabs)/products?category=apparel and the products list filters to 21 apparel items. With empty admin selection ({items:[]}), the entire section is hidden — no header, no scroller, Featured Products immediately follows the stats block (verified via testID query returning null). REGRESSION: all 9 existing public endpoints still 200 (/api/, /api/mobile/cms, /api/cms/{splash,logo,banner,announcements,welcome,footer,home-categories}). Home banner still edge-to-edge (from iteration_13 verification, code unchanged). Snapshot/restore fixture added to test_home_categories.py so the live preview home_categories collection is restored after every test. Final live-preview state is home_categories={} (empty) — matches the 'don't add fake data' directive in the context note; admin can enable categories as needed. No frontend files modified.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_home_categories.py",
+    "/app/backend/tests/conftest.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py L307-317: _fetch_upstream_categories() correctly handles httpx failures — returns [] and logs a warning, so a transient upstream outage will make the mobile Home section hide gracefully rather than 500. Good defensive design.",
+    "server.py L383-415: PUT /api/admin/home-categories skips invalid slugs by consulting `valid_slugs` set, and calls delete_many({slug:{$nin:kept}}) so omitted slugs are pruned atomically — matches the requirement. It also short-circuits the fake-slug protection ONLY when upstream returns []: `if valid_slugs and entry.slug not in valid_slugs` — so a transient upstream outage won't cause admin PUTs to silently drop all items. Reasonable trade-off.",
+    "server.py L326-353: public GET only merges slugs present in `overrides`, so admin-untouched categories are naturally excluded from the mobile home view — matches spec.",
+    "home.tsx L116-150: Categories section wrapped in `homeCategories.length > 0 ? ... : null` — empty state hides the whole section correctly. testIDs home-categories-section / home-categories-scroller / home-category-<slug> match spec exactly.",
+    "home.tsx L135-137: tap dispatches `router.push({pathname:'/(tabs)/products', params:{category:c.slug}})` — verified working: navigates to /products?category=apparel and the products screen filters correctly."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_home_categories.py (new — 10 pytest cases; autouse snapshot/restore fixture keeps live preview clean)"
+  ],
+  "success_rate": {"backend": "100% (47/47)", "frontend": "100% (section renders / order correct / tap navigates / empty state hides)"},
+  "seed_data_creation": "During testing seeded home_categories with 3 slugs (apparel/air-purifiers/automotive) to verify the frontend renders + orders correctly. After all tests completed, the collection was cleared back to {} via PUT /api/admin/home-categories {items:[]} so the live preview shows the (correct) empty state and no fake sample data leaks — matches the reviewer's explicit directive.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Home-categories admin CRUD + public feed are protected by /app/backend/tests/test_home_categories.py which has its own autouse snapshot/restore fixture; you may add more tests to that file without worrying about leaking state. The live preview default state is home_categories={} — this is intentional (empty admin selection ⇒ Home hides the Categories section). If you want to demo the UI, PUT to /api/admin/home-categories with a non-empty items[] array and remember to PUT {items:[]} afterwards. Full pytest 47/47 passes sequentially (`pytest tests/ -o addopts=`); under -n auto there is a pre-existing flake in test_cms_split.py noted in iteration_13.",
+  "rca_of_issue": "N/A — feature-addition review, no bugs found."
+}
