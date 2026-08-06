@@ -54,6 +54,13 @@ export type Footer = {
   copyright?: string;
 };
 
+export type HomeBanner = {
+  image: string;
+  title?: string;
+  subtitle?: string;
+  ctaLink?: string;
+};
+
 export type MobileCMS = {
   splashImage: string;
   splashDurationMs: number;
@@ -63,6 +70,7 @@ export type MobileCMS = {
   welcomeImage: string;
   homeBannerImage: string;
   homeBannerText: string;
+  homeBanners: HomeBanner[];
   announcement: string;
   footer?: Footer;
   updatedAt: string;

@@ -2,6 +2,7 @@ import { local, upstream, UPSTREAM_BASE } from "./client";
 import type {
   Category,
   Footer,
+  HomeBanner,
   MobileCMS,
   Product,
   RFQ,
@@ -90,6 +91,33 @@ export async function fetchHomeCategories() {
   } catch {
     return [];
   }
+}
+
+// Local backend's CMS/admin write endpoints (splash, banner, announcements,
+// home-categories, etc.) are gated by a shared admin token rather than the
+// upstream session cookie — this mirrors the backend's own ADMIN_TOKEN env
+// default so the in-app Admin dashboard can call them directly.
+const LOCAL_ADMIN_TOKEN = process.env.EXPO_PUBLIC_ADMIN_TOKEN ?? "montez-admin-2026";
+
+export type AdminHomeCategoryRow = Category & { enabled: boolean; order: number };
+
+/** Admin: every upstream category with its current enabled/order state, for the Admin dashboard's Homepage Categories screen. */
+export async function fetchAdminHomeCategories() {
+  const res = await local<{ items: AdminHomeCategoryRow[] }>("/api/admin/home-categories", {
+    headers: { "X-Admin-Token": LOCAL_ADMIN_TOKEN },
+  });
+  return res.items ?? [];
+}
+
+/** Admin: save the Homepage Categories selection (enabled + display order). */
+export async function saveAdminHomeCategories(
+  items: { slug: string; order: number; enabled: boolean }[],
+) {
+  return local<{ items: (Category & { order?: number })[] }>("/api/admin/home-categories", {
+    method: "PUT",
+    headers: { "X-Admin-Token": LOCAL_ADMIN_TOKEN },
+    body: JSON.stringify({ items }),
+  });
 }
 
 export async function fetchSettings() {
@@ -310,6 +338,36 @@ export async function fetchMobileCMS(): Promise<MobileCMS> {
       ? appAnnouncement.message
       : undefined);
 
+  // Build the full list of banners from whichever source has content. Priority:
+  // (1) upstream /api/cms/banner.items[], (2) upstream /api/app-settings.homeBanners
+  // (filtered by active !== false), (3) legacy single homeBannerImage.
+  const upstreamBanners = (banner?.items ?? [])
+    .map((b) => ({
+      image: absolutiseMediaUrl(b?.image) ?? "",
+      title: b?.title,
+      subtitle: b?.subtitle,
+      ctaLink: b?.ctaLink,
+    }))
+    .filter((b) => !!b.image);
+  const appSettingsBanners = (appSettings?.settings?.homeBanners ?? [])
+    .filter((b) => b?.active !== false)
+    .map((b) => ({
+      image: absolutiseMediaUrl(b?.image) ?? "",
+      title: b?.title,
+      subtitle: b?.subtitle,
+      ctaLink: b?.ctaLink,
+    }))
+    .filter((b) => !!b.image);
+  const legacyBanners = legacy?.homeBannerImage
+    ? [{ image: legacy.homeBannerImage, title: legacy.homeBannerText, subtitle: "", ctaLink: "" }]
+    : [];
+  const homeBanners: HomeBanner[] =
+    upstreamBanners.length > 0
+      ? upstreamBanners
+      : appSettingsBanners.length > 0
+      ? appSettingsBanners
+      : legacyBanners;
+
   const splashImage =
     pickString(
       absolutiseMediaUrl(splash?.image),
@@ -346,6 +404,7 @@ export async function fetchMobileCMS(): Promise<MobileCMS> {
     welcomeImage,
     homeBannerImage,
     homeBannerText,
+    homeBanners,
     announcement,
     footer: resolvedFooter,
     updatedAt: legacy?.updatedAt ?? new Date().toISOString(),

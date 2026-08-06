@@ -1,12 +1,16 @@
-import { useCallback, useState } from "react";
-import { StyleSheet, View } from "react-native";
+import { useCallback, useEffect, useState } from "react";
+import { StyleSheet, Switch, Text, TouchableOpacity, View } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 
 import {
+  fetchAdminHomeCategories,
   fetchAdminPartners,
   fetchAdminProducts,
   fetchAdminRFQs,
   fetchAdminUsers,
+  saveAdminHomeCategories,
 } from "@/src/api";
+import type { AdminHomeCategoryRow } from "@/src/api";
 import type { User } from "@/src/api/types";
 import {
   DashboardPageScroll,
@@ -21,9 +25,9 @@ import {
   StatCard,
   useAsyncData,
 } from "@/src/components/dashboards/shared";
-import { spacing } from "@/src/theme";
+import { colors, font, radius, spacing } from "@/src/theme";
 
-type Page = "dashboard" | "products" | "partners" | "customers" | "rfqs";
+type Page = "dashboard" | "products" | "partners" | "customers" | "rfqs" | "categories";
 
 const MENU: MenuItem<Page>[] = [
   { key: "dashboard", label: "Dashboard", icon: "speedometer-outline" },
@@ -31,6 +35,7 @@ const MENU: MenuItem<Page>[] = [
   { key: "partners", label: "Manage Partners", icon: "business-outline" },
   { key: "customers", label: "Manage Customers", icon: "people-outline" },
   { key: "rfqs", label: "Manage RFQs", icon: "document-text-outline" },
+  { key: "categories", label: "Homepage Categories", icon: "layers-outline" },
 ];
 
 export function AdminDashboard({ user, onLogout }: { user: User; onLogout: () => void }) {
@@ -49,6 +54,7 @@ export function AdminDashboard({ user, onLogout }: { user: User; onLogout: () =>
       {page === "partners" ? <PartnersPage /> : null}
       {page === "customers" ? <CustomersPage /> : null}
       {page === "rfqs" ? <RFQsPage /> : null}
+      {page === "categories" ? <CategoriesPage /> : null}
     </DashboardShell>
   );
 }
@@ -255,6 +261,130 @@ function RFQsPage() {
   );
 }
 
+function CategoriesPage() {
+  const loader = useCallback(() => fetchAdminHomeCategories(), []);
+  const { state, refresh, refreshing } = useAsyncData<AdminHomeCategoryRow[]>(loader);
+  const [rows, setRows] = useState<AdminHomeCategoryRow[] | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saveMsg, setSaveMsg] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (state.status === "ready") {
+      setRows([...state.data].sort((a, b) => a.order - b.order || a.name.localeCompare(b.name)));
+    }
+  }, [state]);
+
+  const toggle = (slug: string) => {
+    setRows((prev) => (prev ? prev.map((r) => (r.slug === slug ? { ...r, enabled: !r.enabled } : r)) : prev));
+    setSaveMsg(null);
+  };
+
+  const move = (index: number, dir: -1 | 1) => {
+    setRows((prev) => {
+      if (!prev) return prev;
+      const target = index + dir;
+      if (target < 0 || target >= prev.length) return prev;
+      const next = [...prev];
+      [next[index], next[target]] = [next[target], next[index]];
+      return next;
+    });
+    setSaveMsg(null);
+  };
+
+  const save = async () => {
+    if (!rows) return;
+    setSaving(true);
+    setSaveMsg(null);
+    try {
+      await saveAdminHomeCategories(rows.map((r, i) => ({ slug: r.slug, order: i, enabled: r.enabled })));
+      setSaveMsg("Saved. The app's Home screen updates within a few seconds.");
+    } catch (e: any) {
+      setSaveMsg(e?.message ? `Save failed: ${e.message}` : "Save failed. Please try again.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <DashboardPageScroll onRefresh={refresh} refreshing={refreshing} testID="admin-page-categories">
+      <SectionTitle>Homepage Categories</SectionTitle>
+      <Text style={styles.categoriesHint}>
+        Choose which categories appear on the app&apos;s Home screen and in what order. Toggle a
+        category on, use the arrows to set its position, then tap Save.
+      </Text>
+      {state.status === "loading" || !rows ? (
+        <LoadingBlock />
+      ) : state.status === "error" ? (
+        <ErrorPanel error={state.error} onRetry={refresh} testID="admin-categories-error" />
+      ) : rows.length === 0 ? (
+        <EmptyPanel
+          icon="layers-outline"
+          title="No categories found"
+          hint="Add categories from the website admin panel first, then come back here to feature them."
+          testID="admin-categories-empty"
+        />
+      ) : (
+        <>
+          {rows.map((r, i) => (
+            <View key={r.slug} style={styles.categoryRow} testID={`admin-category-row-${r.slug}`}>
+              <View style={styles.categoryOrderCol}>
+                <TouchableOpacity
+                  disabled={i === 0}
+                  onPress={() => move(i, -1)}
+                  style={styles.categoryOrderBtn}
+                  testID={`admin-category-up-${r.slug}`}
+                >
+                  <Ionicons name="chevron-up" size={16} color={i === 0 ? colors.border : colors.brand} />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  disabled={i === rows.length - 1}
+                  onPress={() => move(i, 1)}
+                  style={styles.categoryOrderBtn}
+                  testID={`admin-category-down-${r.slug}`}
+                >
+                  <Ionicons
+                    name="chevron-down"
+                    size={16}
+                    color={i === rows.length - 1 ? colors.border : colors.brand}
+                  />
+                </TouchableOpacity>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.categoryName}>{r.name}</Text>
+                {r.desc ? (
+                  <Text style={styles.categoryDesc} numberOfLines={1}>
+                    {r.desc}
+                  </Text>
+                ) : null}
+              </View>
+              <Switch
+                value={r.enabled}
+                onValueChange={() => toggle(r.slug)}
+                trackColor={{ false: colors.border, true: colors.brandTint }}
+                thumbColor={r.enabled ? colors.brand : undefined}
+                testID={`admin-category-toggle-${r.slug}`}
+              />
+            </View>
+          ))}
+          <TouchableOpacity
+            style={[styles.saveButton, saving && styles.saveButtonDisabled]}
+            onPress={save}
+            disabled={saving}
+            testID="admin-categories-save"
+          >
+            <Text style={styles.saveButtonText}>{saving ? "Saving…" : "Save"}</Text>
+          </TouchableOpacity>
+          {saveMsg ? (
+            <Text style={styles.saveMsg} testID="admin-categories-save-msg">
+              {saveMsg}
+            </Text>
+          ) : null}
+        </>
+      )}
+    </DashboardPageScroll>
+  );
+}
+
 const styles = StyleSheet.create({
   statGrid: {
     flexDirection: "row",
@@ -262,5 +392,62 @@ const styles = StyleSheet.create({
     gap: spacing.md,
     paddingHorizontal: spacing.lg,
     marginBottom: spacing.sm,
+  },
+  categoriesHint: {
+    fontSize: font.sm,
+    color: colors.muted,
+    paddingHorizontal: spacing.lg,
+    marginBottom: spacing.md,
+  },
+  categoryRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+    backgroundColor: colors.surface,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    marginHorizontal: spacing.lg,
+    marginBottom: spacing.sm,
+  },
+  categoryOrderCol: {
+    gap: 2,
+  },
+  categoryOrderBtn: {
+    padding: 2,
+  },
+  categoryName: {
+    fontSize: font.base,
+    fontWeight: "600",
+    color: colors.onSurface,
+  },
+  categoryDesc: {
+    fontSize: font.sm,
+    color: colors.muted,
+  },
+  saveButton: {
+    backgroundColor: colors.brand,
+    borderRadius: radius.md,
+    paddingVertical: spacing.md,
+    alignItems: "center",
+    marginHorizontal: spacing.lg,
+    marginTop: spacing.sm,
+  },
+  saveButtonDisabled: {
+    opacity: 0.6,
+  },
+  saveButtonText: {
+    color: colors.onSurfaceInverse,
+    fontWeight: "700",
+    fontSize: font.base,
+  },
+  saveMsg: {
+    fontSize: font.sm,
+    color: colors.success,
+    textAlign: "center",
+    marginTop: spacing.sm,
+    marginHorizontal: spacing.lg,
   },
 });

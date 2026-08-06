@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
-import { ActivityIndicator, FlatList, Image, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, FlatList, Image, Linking, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useRouter } from "expo-router";
 
 import { fetchHomeCategories, fetchProducts } from "@/src/api";
-import type { Category, Product } from "@/src/api/types";
+import type { Category, HomeBanner, Product } from "@/src/api/types";
 import { ProductCard } from "@/src/components/ProductCard";
 import { SiteFooter } from "@/src/components/SiteFooter";
 import { useApp } from "@/src/context/AppContext";
@@ -55,6 +55,11 @@ export default function HomeScreen() {
   }, [refreshBoot, load]);
 
   const bannerImage = cms?.homeBannerImage ?? "";
+  const banners = cms?.homeBanners && cms.homeBanners.length > 0
+    ? cms.homeBanners
+    : bannerImage
+    ? [{ image: bannerImage, title: "", subtitle: "", ctaLink: "" }]
+    : [];
   const announcement = cms?.announcement ?? "";
 
   return (
@@ -83,16 +88,10 @@ export default function HomeScreen() {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.brand} />}
         ListHeaderComponent={
           <View>
-            {/* CMS-driven banner image only — no overlaid hardcoded copy or CTA */}
-            {bannerImage ? (
-              <TouchableOpacity
-                style={styles.bannerWrap}
-                activeOpacity={0.9}
-                onPress={() => router.push("/(tabs)/products")}
-                testID="home-banner"
-              >
-                <Image source={{ uri: bannerImage }} style={styles.bannerImage} resizeMode="cover" testID="home-banner-image" />
-              </TouchableOpacity>
+            {/* CMS-driven banner carousel. All uploaded banners are rendered
+                as a horizontal-paging list with standard side margin. */}
+            {banners.length > 0 ? (
+              <BannerCarousel banners={banners} onPress={() => router.push("/(tabs)/products")} />
             ) : null}
 
             {/* Announcement */}
@@ -185,6 +184,83 @@ function StatBlock({ label, value }: { label: string; value: string }) {
   );
 }
 
+function BannerCarousel({
+  banners,
+  onPress,
+}: {
+  banners: HomeBanner[];
+  onPress: () => void;
+}) {
+  const { width } = useWindowDimensions();
+  const sideMargin = spacing.lg;
+  const cardWidth = Math.max(1, width - sideMargin * 2);
+  const cardHeight = Math.round(cardWidth * 9 / 16);
+  const [index, setIndex] = useState(0);
+
+  const onScrollEnd = (e: { nativeEvent: { contentOffset: { x: number } } }) => {
+    const i = Math.round(e.nativeEvent.contentOffset.x / cardWidth);
+    if (i !== index) setIndex(i);
+  };
+
+  const handlePress = (b: HomeBanner) => {
+    if (b.ctaLink) {
+      Linking.openURL(b.ctaLink).catch(() => {});
+      return;
+    }
+    onPress();
+  };
+
+  return (
+    <View style={{ marginBottom: spacing.lg }} testID="home-banner">
+      <FlatList
+        horizontal
+        pagingEnabled
+        showsHorizontalScrollIndicator={false}
+        data={banners}
+        keyExtractor={(b, i) => `${b.image}-${i}`}
+        snapToInterval={cardWidth}
+        decelerationRate="fast"
+        onMomentumScrollEnd={onScrollEnd}
+        contentContainerStyle={{ paddingHorizontal: sideMargin }}
+        ItemSeparatorComponent={() => <View style={{ width: 0 }} />}
+        renderItem={({ item, index: i }) => (
+          <TouchableOpacity
+            activeOpacity={0.9}
+            onPress={() => handlePress(item)}
+            style={{
+              width: cardWidth,
+              height: cardHeight,
+              borderRadius: radius.lg,
+              overflow: "hidden",
+              backgroundColor: colors.surfaceTertiary,
+            }}
+            testID={`home-banner-slide-${i}`}
+          >
+            <Image
+              source={{ uri: item.image }}
+              style={{ width: "100%", height: "100%" }}
+              resizeMode="cover"
+              testID={`home-banner-image-${i}`}
+            />
+          </TouchableOpacity>
+        )}
+        testID="home-banner-carousel"
+      />
+      {banners.length > 1 ? (
+        <View style={styles.dots} testID="home-banner-dots">
+          {banners.map((_, i) => (
+            <View
+              key={i}
+              style={[styles.dot, i === index && styles.dotActive]}
+              testID={`home-banner-dot-${i}`}
+            />
+          ))}
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.surface },
   header: {
@@ -213,6 +289,22 @@ const styles = StyleSheet.create({
     marginBottom: spacing.lg,
   },
   bannerImage: { width: "100%", height: "100%" },
+  dots: {
+    flexDirection: "row",
+    justifyContent: "center",
+    gap: 6,
+    marginTop: spacing.sm,
+  },
+  dot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: colors.border,
+  },
+  dotActive: {
+    backgroundColor: colors.brand,
+    width: 18,
+  },
   bannerText: { position: "absolute", left: 20, right: 20, bottom: 16 },
   bannerBadge: {
     color: "#FFFFFF",

@@ -1,0 +1,37 @@
+{
+  "summary": "Frontend-only verification of multi-banner carousel on Home. Upstream /api/cms/banner returns 3 banners; the app fetches all 3 via cms.homeBanners and renders them in a horizontal-paging FlatList with testID home-banner-carousel. All expected testIDs are present (home-banner, home-banner-slide-0..2, home-banner-image-0..2, home-banner-dots, home-banner-dot-0..2). Each slide is 358x201 at 390 viewport (width = 390 - 2*spacing.lg = 358), border-radius 20px (radius.lg), which matches spec. The three upstream media URLs (81ecad.., bcf164.., 58ab48..) are all present in the DOM as backgroundImage on the RN-Web Image element (RN-Web renders Image as a div with background-image, so img.src is null but url is on style.backgroundImage of a descendant). The active dot (index 0) is 18px wide with the brand color (rgb(148,10,10)); inactive dots are 6px grey. Empty CTA slides route to /(tabs)/products via handlePress fallback, non-empty ctaLink calls Linking.openURL — code confirmed. Home categories, announcement pill, stats, featured products grid and footer all still render below the carousel. One caveat: on the RN Web preview slide-0 bounding-box x is 0 (not 16) because FlatList pagingEnabled + contentContainerStyle paddingHorizontal snaps initial scrollLeft to 16, making the left margin visually collapse on web; the right padding is still visible (next slide peek visible starting at 358). On native iOS/Android this is expected to render with proper left+right margins.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "BannerCarousel (home.tsx)",
+        "issue": "On web preview the FlatList initialises with scrollLeft=16, causing slide-0 to render at absolute x=0 (edge-to-edge on the left) instead of x≈16 as spec'd. Width/height/borderRadius are correct. Root cause: RN-Web FlatList pagingEnabled + contentContainerStyle paddingHorizontal quirk — the initial snap consumes the left padding. Consider using ItemSeparatorComponent + adding a leading spacer (or wrapping the FlatList in a padded View and setting snapToInterval to include a gap) so that the first slide has visible left inset in the web build too. On native this typically works.",
+        "testID": "home-banner-slide-0",
+        "priority": "MEDIUM"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "home", "issues": ["On web viewport, banner appears edge-to-edge on the left despite paddingHorizontal on carousel container (see ui_bug above). Right side does show the next-slide peek so paging/snap does work."]}
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [
+    "OPTIONAL/POLISH: In frontend/app/(tabs)/home.tsx BannerCarousel, tweak the FlatList so the first slide has a visible ~16px left margin on RN Web too. Options: (a) set contentInset / contentContainerStyle.paddingLeft only on iOS and use a leading View spacer + snapToOffsets, or (b) wrap the FlatList in a parent View with paddingHorizontal:spacing.lg and set cardWidth = width - 2*spacing.lg while removing the inner paddingHorizontal. On native this issue does not appear.",
+    "No backend regressions expected — server.py untouched this iteration."
+  ],
+  "critical_code_review_comments": [
+    "fetchMobileCMS() correctly prioritises upstream /api/cms/banner.items[] → app-settings.homeBanners → legacy single banner, and absolutises each image URL. Empty-string filter (`.filter(b => !!b.image)`) prevents junk slides. Good.",
+    "BannerCarousel handlePress: correctly opens Linking.openURL for non-empty ctaLink and falls back to onPress (→ products). Good.",
+    "Empty guard is at the parent (banners.length > 0), so an empty homeBanners + empty legacy homeBannerImage cleanly hides the whole home-banner block. Verified in code.",
+    "home.tsx bannerWrap/bannerText/bannerCta styles are now dead code (previous single-banner layout); can be cleaned up in a future pass — not a bug."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A (frontend-only)", "frontend": "95%"},
+  "seed_data_creation": "None — used live upstream data which already exposes 3 banners.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Live upstream (/api/cms/banner) currently returns exactly 3 banners; if that changes, dot count and slide count should track it. To verify DOM images use style.backgroundImage (not img.src) — RN-Web renders Image as div-with-background. Programmatic carousel scrolling in Playwright will NOT fire onMomentumScrollEnd in RN Web, so the dot indicator won't visually update via JS-only scroll; verify via real touch gesture in native build or by directly calling the scroll handler.",
+  "rca_of_issue": "Multi-banner support and center-alignment are functionally implemented per spec. The residual 'x=0 on slide-0' is a well-known RN-Web FlatList paging quirk where the first pagination target snaps to the left of the content area, consuming contentContainerStyle.paddingLeft. Not a functional bug (data flows correctly, all 3 banners load with proper testIDs) but a web-preview visual polish issue only."
+}
