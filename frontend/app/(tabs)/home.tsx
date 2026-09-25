@@ -1,16 +1,17 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, FlatList, Image, Linking, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useRouter } from "expo-router";
 
-import { fetchHomeCategories, fetchProducts } from "@/src/api";
+import { fetchFeatured, fetchHomeCategories, fetchProducts } from "@/src/api";
 import type { Category, HomeBanner, Product } from "@/src/api/types";
 import { ProductCard } from "@/src/components/ProductCard";
 import { SiteFooter } from "@/src/components/SiteFooter";
 import { useApp } from "@/src/context/AppContext";
 import { registerForPushAsync } from "@/src/utils/push";
 import { colors, font, radius, shadow, spacing } from "@/src/theme";
+import { LinearGradient } from "expo-linear-gradient";
 
 export default function HomeScreen() {
   const router = useRouter();
@@ -18,13 +19,20 @@ export default function HomeScreen() {
 
   const [products, setProducts] = useState<Product[]>([]);
   const [homeCategories, setHomeCategories] = useState<Category[]>([]);
+  const [showFeatured, setShowFeatured] = useState(true);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
   const load = useCallback(async () => {
     try {
-      const [items, cats] = await Promise.all([fetchProducts(), fetchHomeCategories()]);
-      setProducts(items.slice(0, 8));
+      const [featured, cats] = await Promise.all([fetchFeatured(), fetchHomeCategories()]);
+      setShowFeatured(featured.show);
+      if (featured.items.length > 0) {
+        setProducts(featured.items.slice(0, featured.count || featured.items.length));
+      } else {
+        const items = await fetchProducts();
+        setProducts(items.slice(0, featured.count || 8));
+      }
       setHomeCategories(cats);
     } finally {
       setLoading(false);
@@ -65,22 +73,36 @@ export default function HomeScreen() {
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>
       <View style={styles.header}>
-        {settings?.logoUrl ? (
-          <Image source={{ uri: settings.logoUrl }} style={styles.logo} resizeMode="contain" testID="home-app-logo" />
-        ) : (
-          <Text style={styles.brand}>Montez Infobyte</Text>
-        )}
-        <TouchableOpacity
-          style={styles.searchIcon}
-          onPress={() => router.push("/(tabs)/products")}
-          testID="home-search-button"
-        >
-          <Ionicons name="search-outline" size={22} color={colors.onSurface} />
-        </TouchableOpacity>
-      </View>
+  <View style={styles.headerLeft}>
+    {settings?.logoUrl ? (
+      <Image
+        source={{ uri: settings.logoUrl }}
+        style={styles.logo}
+        resizeMode="contain"
+        testID="home-app-logo"
+      />
+    ) : (
+      <Text style={styles.brand}>Montez Infobyte</Text>
+    )}
+  </View>
+
+  <TouchableOpacity
+  onPress={() => router.push("/(tabs)/account")}
+  activeOpacity={0.85}
+>
+  <LinearGradient
+    colors={["#9E0000", "#E87500"]}
+    start={{ x: 0, y: 0.5 }}
+    end={{ x: 1, y: 0.5 }}
+    style={styles.partnerButton}
+  >
+    <Text style={styles.partnerButtonText}>Become Partner</Text>
+  </LinearGradient>
+</TouchableOpacity>
+</View>
 
       <FlatList
-        data={products}
+        data={showFeatured ? products : []}
         keyExtractor={(p) => p.id}
         numColumns={2}
         columnWrapperStyle={{ gap: spacing.md, paddingHorizontal: spacing.lg }}
@@ -113,47 +135,55 @@ export default function HomeScreen() {
             </View>
 
             {homeCategories.length > 0 ? (
-              <View testID="home-categories-section">
-                <View style={styles.sectionHeader}>
-                  <Text style={styles.sectionTitle}>Categories</Text>
-                  <TouchableOpacity onPress={() => router.push("/(tabs)/products")}>
-                    <Text style={styles.sectionLink}>See all</Text>
-                  </TouchableOpacity>
-                </View>
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={styles.categoriesRow}
-                  testID="home-categories-scroller"
-                >
-                  {homeCategories.map((c) => (
-                    <TouchableOpacity
-                      key={c.slug}
-                      style={styles.categoryCard}
-                      activeOpacity={0.85}
-                      onPress={() =>
-                        router.push({ pathname: "/(tabs)/products", params: { category: c.slug } })
-                      }
-                      testID={`home-category-${c.slug}`}
-                    >
-                      <View style={styles.categoryIconWrap}>
-                        <Ionicons name="pricetag-outline" size={20} color={colors.brand} />
-                      </View>
-                      <Text style={styles.categoryName} numberOfLines={2}>
-                        {c.name}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </ScrollView>
+  <View>
+    <View style={styles.sectionHeader}>
+      <Text style={styles.sectionTitle}>Categories</Text>
+
+      <TouchableOpacity onPress={() => router.push("/categories")}>
+        <Text style={styles.seeAll}>See all</Text>
+      </TouchableOpacity>
+    </View>
+
+    <View style={styles.categoryGrid}>
+      {homeCategories.map((c) => (
+        <TouchableOpacity
+          key={c.slug}
+          style={styles.categoryCard}
+          activeOpacity={0.85}
+          onPress={() =>
+            router.push({
+              pathname: "/(tabs)/products",
+              params: { category: c.slug },
+            })
+          }
+          testID={`home-category-${c.slug}`}
+        >
+          {c.image ? (
+            <Image
+              source={{ uri: c.image }}
+              style={styles.categoryImage}
+              resizeMode="cover"
+              testID={`home-category-image-${c.slug}`}
+            />
+          ) : (
+            <View style={styles.categoryImagePlaceholder} />
+          )}
+
+          <Text style={styles.categoryName}>{c.name}</Text>
+        </TouchableOpacity>
+      ))}
+    </View>
+  </View>
+) : null}
+
+            {showFeatured ? (
+              <View style={styles.sectionHeader}>
+                <Text style={styles.sectionTitle}>Featured Products</Text>
+                <TouchableOpacity onPress={() => router.push("/(tabs)/products")}>
+                  <Text style={styles.sectionLink}>See all</Text>
+                </TouchableOpacity>
               </View>
             ) : null}
-
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>Featured Products</Text>
-              <TouchableOpacity onPress={() => router.push("/(tabs)/products")}>
-                <Text style={styles.sectionLink}>See all</Text>
-              </TouchableOpacity>
-            </View>
           </View>
         }
         renderItem={({ item }) => <ProductCard product={item} />}
@@ -162,18 +192,20 @@ export default function HomeScreen() {
             <View style={{ paddingVertical: spacing.xxxl, alignItems: "center" }}>
               <ActivityIndicator color={colors.brand} />
             </View>
-          ) : (
+          ) : showFeatured ? (
             <View style={{ paddingVertical: spacing.xxl, alignItems: "center" }}>
               <Text style={{ color: colors.muted }}>No featured products right now.</Text>
             </View>
-          )
+          ) : null
         }
-        ListFooterComponent={<SiteFooter />}
+        
         testID="home-featured-list"
       />
     </SafeAreaView>
   );
 }
+
+
 
 function StatBlock({ label, value }: { label: string; value: string }) {
   return (
@@ -196,6 +228,26 @@ function BannerCarousel({
   const cardWidth = Math.max(1, width - sideMargin * 2);
   const cardHeight = Math.round(cardWidth * 9 / 16);
   const [index, setIndex] = useState(0);
+  const flatListRef = useRef<FlatList<HomeBanner>>(null);
+
+useEffect(() => {
+  if (banners.length <= 1) return;
+
+  const timer = setInterval(() => {
+    setIndex((currentIndex) => {
+      const nextIndex = (currentIndex + 1) % banners.length;
+
+      flatListRef.current?.scrollToOffset({
+        offset: nextIndex * cardWidth,
+        animated: true,
+      });
+
+      return nextIndex;
+    });
+  }, 4000);
+
+  return () => clearInterval(timer);
+}, [banners.length, cardWidth]);
 
   const onScrollEnd = (e: { nativeEvent: { contentOffset: { x: number } } }) => {
     const i = Math.round(e.nativeEvent.contentOffset.x / cardWidth);
@@ -211,9 +263,12 @@ function BannerCarousel({
   };
 
   return (
-    <View style={{ marginBottom: spacing.lg }} testID="home-banner">
+   
+   
+   <View style={{ marginBottom: spacing.lg }} testID="home-banner">
       <FlatList
         horizontal
+        ref={flatListRef}
         pagingEnabled
         showsHorizontalScrollIndicator={false}
         data={banners}
@@ -270,8 +325,27 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     paddingBottom: spacing.md,
   },
-  logo: { width: 120, height: 32 },
-  brand: { fontSize: font.xl, color: colors.brand, fontWeight: "500" },
+  logo: { width: 170, height: 48 },
+
+  headerLeft: {
+    flex: 1,
+    justifyContent: "center",
+  },
+
+  partnerButton: {
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+    borderRadius: 12,
+    marginLeft: 10,
+  },
+
+  partnerButtonText: {
+    color: "#FFFFFF",
+    fontSize: font.sm,
+    fontWeight: "600",
+  },
+
+brand: { fontSize: font.xl, color: colors.brand, fontWeight: "500" },
   searchIcon: {
     width: 40,
     height: 40,
@@ -362,35 +436,46 @@ const styles = StyleSheet.create({
   },
   sectionTitle: { color: colors.onSurface, fontSize: font.lg, fontWeight: "500" },
   sectionLink: { color: colors.brand, fontSize: font.base, fontWeight: "500" },
-  categoriesRow: {
-    paddingHorizontal: spacing.lg,
-    gap: spacing.md,
-    paddingBottom: spacing.lg,
-  },
-  categoryCard: {
-    width: 104,
-    padding: spacing.md,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-    alignItems: "center",
-    gap: spacing.sm,
-    ...shadow.card,
-  },
-  categoryIconWrap: {
-    width: 44,
-    height: 44,
-    borderRadius: radius.pill,
-    backgroundColor: colors.brandTint,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  categoryName: {
-    fontSize: font.sm,
-    color: colors.onSurface,
-    fontWeight: "500",
-    textAlign: "center",
-    textTransform: "capitalize",
-  },
+  categoryGrid: {
+  flexDirection: "row",
+  flexWrap: "wrap",
+  justifyContent: "space-between",
+  paddingHorizontal: 10,
+},
+
+categoryGrid: {
+  flexDirection: "row",
+  flexWrap: "wrap",
+  justifyContent: "space-between",
+  paddingHorizontal: 10,
+},
+
+categoryCard: {
+  width: "31.5%",
+  marginBottom: 16,
+  borderRadius: 10,
+  overflow: "hidden",
+  borderWidth: 1,
+  borderColor: colors.border,
+  backgroundColor: "#fff",
+},
+
+categoryImage: {
+  width: "100%",
+  height: 100,
+},
+
+categoryImagePlaceholder: {
+  width: "100%",
+  height: 150,
+  backgroundColor: "#f0f0f0",
+},
+
+categoryName: {
+  fontSize: 15,
+  fontWeight: "600",
+  textAlign: "center",
+  paddingVertical: 10,
+},
+
 });

@@ -7,7 +7,7 @@ push registration, and admin push broadcast.
 Products, categories, RFQ, settings and page CMS are consumed directly
 from the upstream site backend by the mobile app.
 """
-from fastapi import FastAPI, APIRouter, HTTPException, Header
+from fastapi import FastAPI, APIRouter, HTTPException, Header, Request, Response
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -77,8 +77,8 @@ class MobileCMS(BaseModel):
                 {
                     "title": "Address",
                     "lines": [
-                        "Door No 76, F2, 3rd Annai, Abirami Nagar",
-                        "Thiruverkadu, Chennai – 600077",
+                        "2nd floor W block,124",
+                        "3rd Avenue Anna Nagar",
                         "Tamil Nadu, India",
                     ],
                 },
@@ -458,6 +458,346 @@ async def verify_otp(body: OtpVerifyBody):
     await db.otps.delete_one({"phone": phone})
     token = f"montez-{user['id']}"
     return {"token": token, "user": user}
+
+
+# ---------------------------------------------------------------------------
+# Web relay for the upstream (enterprise-supply-1.emergent.host) session.
+#
+# That API only ever answers `Access-Control-Allow-Origin: *` with no
+# `Access-Control-Allow-Credentials`, and browsers refuse to complete any
+# `credentials:'include'` fetch against a wildcard CORS response — the
+# request fails outright with "Failed to fetch". Browsers also never expose
+# `Set-Cookie` to JS regardless of CORS, so there is no way for the mobile
+# web build to hold the upstream session cookie itself. We complete the
+# login server-to-server instead (no browser CORS rules apply here), keep
+# the real cookie in `web_sessions`, and hand the browser an opaque bearer
+# token that maps to it. Native is unaffected — it talks to upstream
+# directly and keeps working exactly as before.
+# ---------------------------------------------------------------------------
+def _extract_cookie_header(set_cookie_values: Optional[List[str]]) -> Optional[str]:
+    if not set_cookie_values:
+        return None
+    pairs = [v.split(";", 1)[0].strip() for v in set_cookie_values]
+    pairs = [p for p in pairs if "=" in p]
+    return "; ".join(pairs) if pairs else None
+
+
+class ProxyVerifyOtpBody(BaseModel):
+    email: str
+    otp: str
+
+
+@api_router.post("/proxy/auth/verify-otp")
+async def proxy_verify_otp(body: ProxyVerifyOtpBody):
+    async with httpx.AsyncClient(timeout=15.0) as client_http:
+        resp = await client_http.post(
+            f"{PUBLIC_MEDIA_BASE}/api/auth/verify-otp",
+            json=body.model_dump(),
+        )
+    try:
+        data = resp.json()
+    except Exception:
+        raise HTTPException(502, "Upstream returned an invalid response")
+    if resp.status_code >= 400:
+        raise HTTPException(resp.status_code, data.get("error") or "Verification failed")
+
+    token = str(uuid.uuid4())
+    await db.web_sessions.update_one(
+        {"token": token},
+        {
+            "$set": {
+                "token": token,
+                "cookie": _extract_cookie_header(resp.headers.get_list("set-cookie")),
+                "user": data.get("user"),
+                "createdAt": now_utc().isoformat(),
+            }
+        },
+        upsert=True,
+    )
+    return {**data, "token": token}
+
+
+@api_router.api_route("/proxy/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
+async def proxy_authenticated(path: str, request: Request, authorization: Optional[str] = Header(default=None)):
+    """Relay any other authenticated upstream call using the session stashed
+    by proxy_verify_otp above, identified by the bearer token the browser
+    sends back."""
+    token = None
+    if authorization and authorization.lower().startswith("bearer "):
+        token = authorization[7:].strip()
+    session = await db.web_sessions.find_one({"token": token}, {"_id": 0}) if token else None
+    if not session or not session.get("cookie"):
+        raise HTTPException(401, "Not authenticated")
+
+    body = await request.body()
+    headers = {"Cookie": session["cookie"]}
+    if body:
+        headers["Content-Type"] = request.headers.get("content-type", "application/json")
+
+    async with httpx.AsyncClient(timeout=15.0) as client_http:
+        resp = await client_http.request(
+            request.method,
+            f"{PUBLIC_MEDIA_BASE}/api/{path}",
+            params=dict(request.query_params),
+            content=body,
+            headers=headers,
+        )
+
+    if path == "auth/logout":
+        await db.web_sessions.delete_one({"token": token})
+
+    return Response(
+        content=resp.content,
+        status_code=resp.status_code,
+        media_type=resp.headers.get("content-type", "application/json"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Cart — upstream (enterprise-supply-1.emergent.host) has no server-side cart
+# API of its own; its site keeps the cart in browser localStorage, entirely
+# unauthenticated. To give signed-in users a cart that syncs across devices,
+# we store it ourselves, keyed by the upstream user id. Both native (which
+# sends its real upstream session cookie as the bearer credential) and web
+# (which sends the opaque proxy token from /proxy/auth/verify-otp) resolve to
+# a user the same way other authenticated calls do.
+# ---------------------------------------------------------------------------
+class CartAddBody(BaseModel):
+    productId: Optional[str] = None
+    slug: Optional[str] = None
+    quantity: int = 1
+
+
+class CartUpdateBody(BaseModel):
+    productId: str
+    quantity: int
+
+
+class CartRemoveBody(BaseModel):
+    productId: str
+
+
+async def _resolve_cart_user(authorization: Optional[str]) -> dict:
+    if not authorization or not authorization.lower().startswith("bearer "):
+        raise HTTPException(401, "Not authenticated")
+    credential = authorization[7:].strip()
+
+    session = await db.web_sessions.find_one({"token": credential}, {"_id": 0})
+    if session and session.get("user"):
+        return session["user"]
+
+    # Not a known proxy token — treat it as a raw upstream session cookie
+    # (the native path) and ask upstream who it belongs to.
+    async with httpx.AsyncClient(timeout=10.0) as client_http:
+        resp = await client_http.get(
+            f"{PUBLIC_MEDIA_BASE}/api/auth/me", headers={"Cookie": credential}
+        )
+    user = resp.json().get("user") if resp.status_code == 200 else None
+    if not user:
+        raise HTTPException(401, "Not authenticated")
+    return user
+
+
+async def _find_upstream_product(product_id: Optional[str], slug: Optional[str]) -> Optional[dict]:
+    if not product_id and not slug:
+        return None
+    async with httpx.AsyncClient(timeout=10.0) as client_http:
+        resp = await client_http.get(f"{PUBLIC_MEDIA_BASE}/api/products")
+    if resp.status_code != 200:
+        return None
+    for p in resp.json().get("items") or []:
+        if (product_id and p.get("id") == product_id) or (slug and p.get("slug") == slug):
+            return p
+    return None
+
+
+def _cart_unit_price(item: dict) -> float:
+    raw = item.get("price")
+    if isinstance(raw, (int, float)):
+        return float(raw)
+    digits = "".join(ch for ch in str(raw or "") if ch.isdigit() or ch == ".")
+    if digits:
+        return float(digits)
+    return float(item.get("priceFrom") or 0)
+
+
+def _product_image(product: dict) -> str:
+    """Absolute image URL for a catalog product.
+
+    Upstream serves product images as relative media paths ("/api/media/xyz"),
+    and some records only carry the image inside `gallery`. Pick the first
+    usable one and absolutise it so cart/order consumers never see a path they
+    can't render.
+    """
+    candidates = [product.get("image"), product.get("imageUrl")]
+    gallery = product.get("gallery")
+    if isinstance(gallery, list):
+        candidates.extend(g for g in gallery if isinstance(g, str))
+    for candidate in candidates:
+        url = _absolutise_url(candidate)
+        if url:
+            return url
+    return ""
+
+
+def _with_absolute_images(items: List[dict]) -> List[dict]:
+    """Copy of `items` with each image absolutised — repairs items stored
+    before images were absolutised at write time."""
+    return [{**it, "image": _product_image(it)} for it in items]
+
+
+def _cart_response(items: List[dict]) -> dict:
+    subtotal = sum(_cart_unit_price(it) * it.get("quantity", 0) for it in items)
+    item_count = sum(it.get("quantity", 0) for it in items)
+    return {
+        "items": _with_absolute_images(items),
+        "subtotal": subtotal,
+        "total": subtotal,
+        "itemCount": item_count,
+    }
+
+
+async def _get_cart_items(user_id: str) -> List[dict]:
+    doc = await db.carts.find_one({"userId": user_id}, {"_id": 0})
+    return doc.get("items", []) if doc else []
+
+
+async def _save_cart_items(user_id: str, items: List[dict]) -> None:
+    await db.carts.update_one(
+        {"userId": user_id},
+        {"$set": {"userId": user_id, "items": items, "updatedAt": now_utc().isoformat()}},
+        upsert=True,
+    )
+
+
+@api_router.get("/me/cart")
+async def get_my_cart(authorization: Optional[str] = Header(default=None)):
+    user = await _resolve_cart_user(authorization)
+    return _cart_response(await _get_cart_items(user["id"]))
+
+
+@api_router.post("/me/cart/add")
+async def add_to_my_cart(body: CartAddBody, authorization: Optional[str] = Header(default=None)):
+    user = await _resolve_cart_user(authorization)
+    if not body.productId and not body.slug:
+        raise HTTPException(400, "productId or slug is required")
+
+    items = await _get_cart_items(user["id"])
+    existing = next(
+        (
+            it
+            for it in items
+            if (body.productId and it.get("productId") == body.productId)
+            or (body.slug and it.get("slug") == body.slug)
+        ),
+        None,
+    )
+    if existing:
+        existing["quantity"] = existing.get("quantity", 0) + max(body.quantity, 1)
+    else:
+        product = await _find_upstream_product(body.productId, body.slug)
+        if not product:
+            raise HTTPException(404, "Product not found")
+        items.append(
+            {
+                "productId": product.get("id"),
+                "slug": product.get("slug"),
+                "name": product.get("name"),
+                "image": _product_image(product),
+                "price": product.get("price"),
+                "priceFrom": product.get("priceFrom"),
+                "moq": product.get("moq"),
+                "quantity": max(body.quantity, 1),
+            }
+        )
+    await _save_cart_items(user["id"], items)
+    return _cart_response(items)
+
+
+@api_router.post("/me/cart/update")
+async def update_my_cart_item(body: CartUpdateBody, authorization: Optional[str] = Header(default=None)):
+    user = await _resolve_cart_user(authorization)
+    items = await _get_cart_items(user["id"])
+    if body.quantity <= 0:
+        items = [it for it in items if it.get("productId") != body.productId]
+    else:
+        for it in items:
+            if it.get("productId") == body.productId:
+                it["quantity"] = body.quantity
+                break
+    await _save_cart_items(user["id"], items)
+    return _cart_response(items)
+
+
+@api_router.post("/me/cart/remove")
+async def remove_my_cart_item(body: CartRemoveBody, authorization: Optional[str] = Header(default=None)):
+    user = await _resolve_cart_user(authorization)
+    items = [it for it in await _get_cart_items(user["id"]) if it.get("productId") != body.productId]
+    await _save_cart_items(user["id"], items)
+    return _cart_response(items)
+
+
+@api_router.post("/me/checkout")
+async def checkout_my_cart(authorization: Optional[str] = Header(default=None)):
+    """Same story as cart itself — upstream has no checkout endpoint either
+    (its own site's "checkout" just converts the local cart into an RFQ).
+    We record the order against our own cart storage and clear it."""
+    user = await _resolve_cart_user(authorization)
+    items = await _get_cart_items(user["id"])
+    if not items:
+        raise HTTPException(400, "Cart is empty")
+
+    order = {
+        "id": str(uuid.uuid4()),
+        "userId": user["id"],
+        "customerEmail": user.get("email"),
+        "customerName": user.get("name"),
+        "items": items,
+        **{k: v for k, v in _cart_response(items).items() if k != "items"},
+        "status": "placed",
+        "createdAt": now_utc().isoformat(),
+    }
+    await db.orders.insert_one(order)
+    await _save_cart_items(user["id"], [])
+    return {"id": order["id"], "orderId": order["id"], "status": "placed"}
+
+
+def _order_summary(order: dict, include_customer: bool = False) -> dict:
+    items = order.get("items", [])
+    if len(items) == 1:
+        product_name = items[0].get("name")
+    elif items:
+        product_name = f"{items[0].get('name')} + {len(items) - 1} more"
+    else:
+        product_name = None
+    out = {
+        "id": order.get("id"),
+        "productName": product_name,
+        "items": _with_absolute_images(items),
+        "quantity": order.get("itemCount"),
+        "subtotal": order.get("subtotal"),
+        "total": order.get("total"),
+        "status": order.get("status"),
+        "createdAt": order.get("createdAt"),
+    }
+    if include_customer:
+        out["customerEmail"] = order.get("customerEmail")
+        out["customerName"] = order.get("customerName")
+    return out
+
+
+@api_router.get("/me/orders")
+async def get_my_orders(authorization: Optional[str] = Header(default=None)):
+    user = await _resolve_cart_user(authorization)
+    cursor = db.orders.find({"userId": user["id"]}, {"_id": 0}).sort("createdAt", -1)
+    return {"items": [_order_summary(o) async for o in cursor]}
+
+
+@api_router.get("/admin/orders")
+async def get_admin_orders(x_admin_token: Optional[str] = Header(default=None)):
+    _check_admin(x_admin_token)
+    cursor = db.orders.find({}, {"_id": 0}).sort("createdAt", -1)
+    return {"items": [_order_summary(o, include_customer=True) async for o in cursor]}
 
 
 # ---------------------------------------------------------------------------

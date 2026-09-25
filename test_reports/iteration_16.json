@@ -1,0 +1,48 @@
+{
+  "summary": "Frontend-only verification of new Add-to-Cart feature. Structural placement is correct on BOTH Product Card (compact circular cart icon on each of 36 product cards, testID `product-card-add-to-cart-<slug>`) and Product Detail (`product-add-to-cart-button` rendered NEXT TO `product-request-quote-button` — both visible and interactive). Card body still navigates to /product/<slug> (regression PASS). Request-Quote flow still routes to /(tabs)/rfq with productSlug/productName/category params (regression PASS). Bottom-tab layout untouched, cart badge component present with testID `tab-cart-badge`. Toast component present in DOM tree (ToastProvider mounted inside CartProvider in _layout.tsx). \n\nCRITICAL BUG: The unauthenticated 'prompt sign-in instead of failing silently' behavior is broken on RN Web. `useAddToCartAction.promptSignIn()` calls React Native's `Alert.alert(...)`, but `react-native-web/dist/exports/Alert/index.js` implements Alert.alert as a NO-OP (`class Alert { static alert() {} }`). Tapping the compact Add-to-Cart on any product card OR the Add-to-Cart button on the Product Detail screen while signed out produces ZERO feedback — no browser dialog, no window.alert call, no window.confirm call, no DOM alert, no console log, no navigation, no toast. This is the exact silent-failure the problem statement forbids. Verified twice with alert()/confirm() monkey-patching and page.on('dialog') listener. E1's testing note claimed 'RN Alert may render as a browser alert dialog' — this is incorrect for the installed react-native-web version; Alert.alert is a static no-op.\n\nCould not test the signed-in happy path (POST /api/me/cart/add → toast + badge increment): the upstream /api/auth/send-otp does not return a demoOtp for any tested email (customer@test.com, customer@demo.com, demo@customer.com etc.) — real inbox delivery is required and dev preview does not expose the code. E1/main-agent should verify the signed-in flow manually or expose a demo email that returns demoOtp.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "useAddToCartAction.promptSignIn (src/hooks/useAddToCartAction.ts:28-41)",
+        "issue": "On React Native Web, `Alert.alert(...)` is a NO-OP (react-native-web ships an empty Alert.alert). Result: tapping Add-to-Cart while signed out silently does nothing — no dialog, no navigation, no toast, no console output. This violates the requirement 'prompt sign-in instead of failing silently'. Fix suggestion: detect `Platform.OS === 'web'` and either (a) call `showToast('Please sign in to add items', {type:'info'})` + `router.push('/(tabs)/account')`, or (b) use `window.confirm(...)` on web, or (c) show a small in-app modal via a shared confirm context.",
+        "testID": "product-card-add-to-cart-<slug>, product-add-to-cart-button",
+        "priority": "HIGH"
+      }
+    ],
+    "integration_issues": [
+      {
+        "flow": "Unauthenticated Add-to-Cart → sign-in prompt",
+        "issue": "Silent no-op on web because RN Alert isn't implemented in react-native-web. See ui_bug above.",
+        "affected_testIDs": ["product-card-add-to-cart-*", "product-add-to-cart-button"]
+      }
+    ],
+    "design_issues": [
+      {"screen": "product/[slug]", "issues": ["Add to Cart and Request Quote are placed side-by-side in the sticky footer (styles.ctaRow, gap: spacing.sm). Both render as full-width halves at 390px viewport, well above the 44pt tap target. Visual balance looks correct."]},
+      {"screen": "products / home", "issues": ["Compact 34x34 rounded add-to-cart button sits in the metaRow next to price. hitSlop of 8px on all sides bumps effective tap target to ~50x50, meeting 44pt minimum. Icon is white on brand color — good contrast."]}
+    ],
+    "react_native_issues": [
+      {"component": "Alert (via react-native-web)", "issue": "react-native-web Alert.alert is a no-op — do not rely on Alert.alert for user-facing prompts in the web preview. Reference: /app/frontend/src/hooks/useAddToCartAction.ts:29 and /app/frontend/node_modules/react-native-web/dist/exports/Alert/index.js"}
+    ]
+  },
+  "test_report_links": [],
+  "action_items": [
+    "HIGH: Replace `Alert.alert(...)` in useAddToCartAction.promptSignIn with a web-safe prompt. Recommended: `if (Platform.OS === 'web') { showToast('Please sign in to add items to your cart', { type: 'info' }); router.push('/(tabs)/account'); return; } Alert.alert(...)` — this keeps the native experience and gives web users an actual visible cue.",
+    "OPTIONAL: Verify authenticated Add-to-Cart happy path (upstream POST /api/me/cart/add → toast `<name> added to cart` + `tab-cart-badge` increment) — testing agent could not obtain an OTP via preview API. Please self-test with a real email that receives OTP or add a dev-only email whitelist that returns demoOtp.",
+    "OPTIONAL: Console still logs `props.pointerEvents is deprecated. Use style.pointerEvents` and `\"shadow*\" style props are deprecated. Use \"boxShadow\"` — noise from library, not this feature."
+  ],
+  "critical_code_review_comments": [
+    "Provider ordering in app/_layout.tsx is correct: SafeAreaProvider → AppProvider → CartProvider → ToastProvider → Stack. So useCart and useToast are available inside useAddToCartAction. Good.",
+    "useAddToCartAction handles double-tap via `pendingKey` and escalates auth-shaped errors to promptSignIn — logic is sound; only the promptSignIn transport is broken on web.",
+    "ProductCard uses `e.stopPropagation?.()` on the compact button's onPress so tapping the cart icon does NOT trigger the card's navigation. Verified in code and behavior.",
+    "CartContext.addToCart is used unchanged (same code path as cart screen). No regression risk to /(tabs)/cart, /(tabs)/rfq, or tabs layout.",
+    "product/[slug].tsx footer now has ctaRow with cartCta + rfqCta side-by-side; existing testID `product-request-quote-button` is preserved and its onPress navigation to /(tabs)/rfq with params is unchanged (regression PASS)."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A (frontend-only)", "frontend": "70% (structural placement PASS; signed-out UX FAIL on web; signed-in path untested due to no OTP access)"},
+  "seed_data_creation": "None",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "1) react-native-web Alert.alert is a no-op — verified at /app/frontend/node_modules/react-native-web/dist/exports/Alert/index.js. Any RN Alert-based prompt is silently dropped on web. 2) To reach the signed-in happy path, either whitelist an email that returns demoOtp from /api/auth/send-otp or intercept the network response. The Playwright script in this iteration monkey-patches window.alert/confirm and listens for page.on('dialog') — reuse that pattern. 3) Product cards render 36 items on /(tabs)/products; each has both `product-card-<slug>` (whole card) and `product-card-add-to-cart-<slug>` (compact button). 4) tab-cart-badge only renders when cart.itemCount > 0 — assert its existence AFTER a successful add, not before.",
+  "rca_of_issue": "Root cause: `useAddToCartAction.promptSignIn()` uses `Alert.alert()` from 'react-native'. On the Expo web preview this resolves to `react-native-web`'s Alert stub which is defined as `class Alert { static alert() {} }` (empty function). Therefore the two-button 'Sign in required / Not now / Sign in' dialog is never displayed, and no fallback (navigation, toast, console) is triggered. Reproduction: (1) Open /(tabs)/products in the web preview while signed out. (2) Tap any compact cart-icon button (testID product-card-add-to-cart-<slug>). (3) Observe: no dialog, no toast, no navigation, no error — silent no-op. Same on /product/<slug> Add-to-Cart button. Mitigation: gate the Alert.alert path on Platform.OS !== 'web' and use showToast + router.push('/(tabs)/account') for the web branch."
+}

@@ -10,6 +10,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
+import { useLocalSearchParams } from "expo-router";
 
 import { fetchCategories, fetchProducts } from "@/src/api";
 import type { Category, Product } from "@/src/api/types";
@@ -19,13 +20,23 @@ import { ProductCard } from "@/src/components/ProductCard";
 import { colors, font, radius, spacing } from "@/src/theme";
 
 export default function ProductsScreen() {
+  const params = useLocalSearchParams<{ category?: string }>();
   const [categories, setCategories] = useState<Category[]>([]);
-  const [selected, setSelected] = useState<string>("all");
+  const [selected, setSelected] = useState<string>(params.category || "all");
   const [query, setQuery] = useState("");
   const [debounced, setDebounced] = useState("");
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Re-apply the category param whenever this screen is navigated to with a
+  // new one (e.g. tapping a category card) — the tab stays mounted, so this
+  // wouldn't otherwise pick up on repeat navigations.
+  useEffect(() => {
+    if (params.category && params.category !== selected) {
+      setSelected(params.category);
+    }
+  }, [params.category]);
 
   useEffect(() => {
     fetchCategories().then(setCategories).catch(() => setCategories([]));

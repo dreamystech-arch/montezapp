@@ -8,6 +8,8 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 
 import { AppProvider } from "@/src/context/AppContext";
+import { CartProvider } from "@/src/context/CartContext";
+import { ToastProvider } from "@/src/context/ToastContext";
 import { storage } from "@/src/utils/storage";
 import { useIconFonts } from "@/src/hooks/use-icon-fonts";
 
@@ -92,7 +94,11 @@ export default function RootLayout() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         <AppProvider>
-          <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: "#FFFFFF" } }} />
+          <CartProvider>
+            <ToastProvider>
+              <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: "#FFFFFF" } }} />
+            </ToastProvider>
+          </CartProvider>
         </AppProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>

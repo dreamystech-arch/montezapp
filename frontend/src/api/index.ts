@@ -1,5 +1,7 @@
-import { local, upstream, UPSTREAM_BASE } from "./client";
+import { local, localAuthed, upstream, UPSTREAM_BASE } from "./client";
 import type {
+  Cart,
+  CartItem,
   Category,
   Footer,
   HomeBanner,
@@ -81,8 +83,21 @@ export async function fetchCategories() {
   return res.items ?? [];
 }
 
-/** Admin-curated ordered list of enabled categories for the mobile Home screen. */
+/** Admin-curated ordered list of enabled categories for the mobile Home screen.
+ * Shared with the website: reads the same toggle the website's Homepage
+ * Categories admin screen writes to, falling back to this app's own local
+ * config only if the shared endpoint is unreachable. */
 export async function fetchHomeCategories() {
+  try {
+    const res = await upstream<{ items: (Category & { order?: number })[] }>(
+      "/api/cms/homepage-categories",
+    );
+    if (res.items?.length) {
+      return res.items.map((c) => ({ ...c, id: c.slug, image: absolutiseMediaUrl(c.image) }));
+    }
+  } catch {
+    /* fall through to local */
+  }
   try {
     const res = await local<{ items: (Category & { order?: number })[] }>(
       "/api/cms/home-categories",
@@ -90,6 +105,24 @@ export async function fetchHomeCategories() {
     return res.items ?? [];
   } catch {
     return [];
+  }
+}
+
+export type FeaturedConfig = { show: boolean; count: number; items: Product[] };
+
+/** Admin-controlled Featured Products visibility + count, shared with the website. */
+export async function fetchFeatured(): Promise<FeaturedConfig> {
+  try {
+    const res = await upstream<{ show?: boolean; count?: number; items?: Product[] }>(
+      "/api/cms/featured",
+    );
+    return {
+      show: res.show ?? true,
+      count: res.count ?? 8,
+      items: (res.items ?? []).map(normaliseProductMedia).filter((p) => !p.hidden),
+    };
+  } catch {
+    return { show: true, count: 8, items: [] };
   }
 }
 
@@ -181,8 +214,10 @@ export async function fetchMyRFQs() {
   return Array.isArray(res) ? res : res.items ?? [];
 }
 
+// Orders live in our own local backend, same as cart/checkout — upstream has
+// no order records to read back (see checkoutCart below).
 export async function fetchMyOrders() {
-  const res = await upstream<{ items: any[] } | any[]>("/api/me/orders", { withAuth: true });
+  const res = await localAuthed<{ items: any[] } | any[]>("/api/me/orders");
   return Array.isArray(res) ? res : res.items ?? [];
 }
 
@@ -232,6 +267,85 @@ export async function fetchAdminPartners() {
 export async function fetchAdminRFQs() {
   const res = await upstream<{ items: RFQ[] } | RFQ[]>("/api/admin/rfqs", { withAuth: true });
   return Array.isArray(res) ? res : res.items ?? [];
+}
+
+// Admin: every order placed through our local checkout, across all customers.
+export async function fetchAdminOrders() {
+  const res = await local<{ items: any[] } | any[]>("/api/admin/orders", {
+    headers: { "X-Admin-Token": LOCAL_ADMIN_TOKEN },
+  });
+  return Array.isArray(res) ? res : res.items ?? [];
+}
+
+// ---------------------------------------------------------------------------
+// Cart & checkout
+// ---------------------------------------------------------------------------
+// Cart items are assembled by our local backend from the upstream catalog, so
+// their `image` arrives as a relative media path (e.g. "/api/media/xyz") just
+// like a raw product does. <Image> can't resolve those, so run every cart item
+// through the same absolutiser used for product media before handing it to the
+// cart/checkout screens.
+function normaliseCartItem(it: CartItem): CartItem {
+  return {
+    ...it,
+    image: absolutiseMediaUrl(it.image ?? it.imageUrl ?? it.gallery?.[0]),
+  };
+}
+
+function normaliseCart(raw: any): Cart {
+  const rawItems: CartItem[] = Array.isArray(raw?.items) ? raw.items : Array.isArray(raw) ? raw : [];
+  const items = rawItems.map(normaliseCartItem);
+  const subtotal =
+    raw?.subtotal ??
+    raw?.total ??
+    items.reduce((s, it) => s + (Number(it.price) || 0) * (it.quantity ?? 0), 0);
+  return {
+    items,
+    subtotal: Number(subtotal) || 0,
+    total: Number(raw?.total ?? subtotal) || 0,
+    itemCount: items.reduce((s, it) => s + (it.quantity ?? 0), 0),
+  };
+}
+
+// Upstream (enterprise-supply-1.emergent.host) has no server-side cart API —
+// its own site keeps the cart in browser localStorage, unauthenticated. Our
+// signed-in, cross-device cart is backed by our own local supplementary
+// backend instead, keyed off the same session credential used for the
+// upstream-auth proxy (see client.ts's localAuthed / backend's /api/me/cart*).
+export async function fetchCart(): Promise<Cart> {
+  const raw = await localAuthed<any>("/api/me/cart");
+  return normaliseCart(raw);
+}
+
+export async function addToCart(payload: { productId?: string; slug?: string; quantity: number }) {
+  const raw = await localAuthed<any>("/api/me/cart/add", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+  return normaliseCart(raw);
+}
+
+export async function updateCartItem(payload: { productId: string; quantity: number }) {
+  const raw = await localAuthed<any>("/api/me/cart/update", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+  return normaliseCart(raw);
+}
+
+export async function removeCartItem(payload: { productId: string }) {
+  const raw = await localAuthed<any>("/api/me/cart/remove", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+  return normaliseCart(raw);
+}
+
+export async function checkoutCart(payload?: Record<string, unknown>) {
+  return localAuthed<{ id?: string; orderId?: string; status?: string }>("/api/me/checkout", {
+    method: "POST",
+    body: JSON.stringify(payload ?? {}),
+  });
 }
 
 export async function fetchAdminProducts() {

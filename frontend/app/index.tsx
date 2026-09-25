@@ -26,7 +26,7 @@ export default function Splash() {
   return (
     <View style={styles.container} testID="splash-screen">
       {cms?.splashImage ? (
-        <Image source={{ uri: cms.splashImage }} style={styles.bg} blurRadius={4} />
+        <Image source={{ uri: cms.splashImage }} style={styles.bg} resizeMode="cover" testID="splash-image" />
       ) : null}
       <View style={styles.overlay} />
       <View style={styles.content}>
@@ -51,8 +51,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  bg: { ...StyleSheet.absoluteFillObject, opacity: 0.15 },
-  overlay: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(255,255,255,0.75)" },
+  bg: { ...StyleSheet.absoluteFillObject, opacity: 0.6 },
+  overlay: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(255,255,255,0.35)" },
   content: { alignItems: "center", justifyContent: "center", padding: spacing.xl },
   logo: { width: 200, height: 100, marginBottom: spacing.md },
   brand: {

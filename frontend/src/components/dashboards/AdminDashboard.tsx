@@ -4,6 +4,7 @@ import { Ionicons } from "@expo/vector-icons";
 
 import {
   fetchAdminHomeCategories,
+  fetchAdminOrders,
   fetchAdminPartners,
   fetchAdminProducts,
   fetchAdminRFQs,
@@ -27,7 +28,7 @@ import {
 } from "@/src/components/dashboards/shared";
 import { colors, font, radius, spacing } from "@/src/theme";
 
-type Page = "dashboard" | "products" | "partners" | "customers" | "rfqs" | "categories";
+type Page = "dashboard" | "products" | "partners" | "customers" | "rfqs" | "orders" | "categories";
 
 const MENU: MenuItem<Page>[] = [
   { key: "dashboard", label: "Dashboard", icon: "speedometer-outline" },
@@ -35,6 +36,7 @@ const MENU: MenuItem<Page>[] = [
   { key: "partners", label: "Manage Partners", icon: "business-outline" },
   { key: "customers", label: "Manage Customers", icon: "people-outline" },
   { key: "rfqs", label: "Manage RFQs", icon: "document-text-outline" },
+  { key: "orders", label: "Manage Orders", icon: "bag-handle-outline" },
   { key: "categories", label: "Homepage Categories", icon: "layers-outline" },
 ];
 
@@ -54,6 +56,7 @@ export function AdminDashboard({ user, onLogout }: { user: User; onLogout: () =>
       {page === "partners" ? <PartnersPage /> : null}
       {page === "customers" ? <CustomersPage /> : null}
       {page === "rfqs" ? <RFQsPage /> : null}
+      {page === "orders" ? <OrdersPage /> : null}
       {page === "categories" ? <CategoriesPage /> : null}
     </DashboardShell>
   );
@@ -254,6 +257,38 @@ function RFQsPage() {
               r.createdAt ? { label: "Date", value: new Date(r.createdAt).toLocaleDateString() } : undefined,
             ].filter((m): m is { label: string; value: string } => !!m)}
             testID={`admin-rfq-${r.id}`}
+          />
+        ))
+      )}
+    </DashboardPageScroll>
+  );
+}
+
+function OrdersPage() {
+  const loader = useCallback(() => fetchAdminOrders(), []);
+  const { state, refresh, refreshing } = useAsyncData<any[]>(loader);
+  return (
+    <DashboardPageScroll onRefresh={refresh} refreshing={refreshing} testID="admin-page-orders">
+      <SectionTitle>Manage Orders ({state.status === "ready" ? state.data.length : "…"})</SectionTitle>
+      {state.status === "loading" ? (
+        <LoadingBlock />
+      ) : state.status === "error" ? (
+        <ErrorPanel error={state.error} onRetry={refresh} testID="admin-orders-error" />
+      ) : state.data.length === 0 ? (
+        <EmptyPanel icon="bag-handle-outline" title="No orders yet" hint="Orders placed via checkout appear here." testID="admin-orders-empty" />
+      ) : (
+        state.data.map((o: any, i: number) => (
+          <GenericListCard
+            key={o.id ?? i}
+            title={o.productName ?? `Order #${(o.id ?? "").slice?.(0, 8) ?? i + 1}`}
+            subtitle={o.customerName ? `${o.customerName} · ${o.customerEmail}` : o.customerEmail}
+            status={o.status}
+            meta={[
+              o.quantity != null ? { label: "Qty", value: String(o.quantity) } : undefined,
+              o.total != null ? { label: "Total", value: `₹${o.total}` } : undefined,
+              o.createdAt ? { label: "Date", value: new Date(o.createdAt).toLocaleDateString() } : undefined,
+            ].filter((m): m is { label: string; value: string } => !!m)}
+            testID={`admin-order-${o.id ?? i}`}
           />
         ))
       )}

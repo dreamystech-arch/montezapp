@@ -1,3 +1,5 @@
+import { Platform } from "react-native";
+
 // API client. Two backends:
 //   - Upstream site backend (products, categories, RFQ, settings, pages/home, AUTH)
 //   - Local supplementary backend (mobile CMS, phone-OTP demo, push register)
@@ -7,9 +9,21 @@
 export const UPSTREAM_BASE = "https://enterprise-supply-1.emergent.host";
 export const LOCAL_BASE = process.env.EXPO_PUBLIC_BACKEND_URL ?? "";
 
+// Browsers can't do what native RN does for the upstream session: `fetch`
+// hides `Set-Cookie` from JS entirely, and upstream always answers with
+// `Access-Control-Allow-Origin: *`, which browsers refuse to pair with
+// `credentials:'include'` (the request fails outright with "Failed to
+// fetch"). So on web, every authenticated call is relayed through our local
+// backend's `/api/proxy`, which holds the real upstream cookie server-side
+// (immune to browser CORS rules) and hands the browser an opaque bearer
+// token instead. Native is unaffected — it still talks to upstream directly.
+const USE_AUTH_PROXY = Platform.OS === "web";
+
 // -----------------------------------------------------------------------------
-// Session cookie handling. React Native fetch has its own jar per-app-run but
-// we manually persist a Cookie header so the session survives cold starts.
+// Session credential handling. Native: the real upstream Cookie header,
+// manually persisted so the session survives cold starts. Web: the opaque
+// proxy token described above. Either way it's opaque to callers — they just
+// pass it through setSession()/getSessionCookie().
 // -----------------------------------------------------------------------------
 let sessionCookie: string | null = null;
 
@@ -40,23 +54,34 @@ async function request<T>(
   path: string,
   init?: RequestInit & { withAuth?: boolean; captureCookie?: boolean },
 ): Promise<T> {
+  const authed = Boolean(init?.withAuth || init?.captureCookie);
+  const viaProxy = authed && USE_AUTH_PROXY;
+  // The proxy mirrors upstream's own `/api/...` paths one level down, so
+  // `/api/me/cart` → `/api/proxy/me/cart`.
+  const targetBase = viaProxy ? LOCAL_BASE : base;
+  const targetPath = viaProxy ? `/api/proxy${path.replace(/^\/api/, "")}` : path;
+
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     ...((init?.headers as Record<string, string>) || {}),
   };
-  if (init?.withAuth && sessionCookie) {
-    headers["Cookie"] = sessionCookie;
+  if (init?.withAuth) {
+    if (viaProxy) {
+      if (sessionCookie) headers["Authorization"] = `Bearer ${sessionCookie}`;
+    } else if (sessionCookie) {
+      headers["Cookie"] = sessionCookie;
+    }
   }
-  // Only send credentials for requests that actually deal with session state.
-  // Upstream API returns `Access-Control-Allow-Origin: *` which browsers reject
-  // when combined with `credentials: 'include'` — but native RN doesn't care.
-  const needsCreds = init?.withAuth || init?.captureCookie;
-  const res = await fetch(`${base}${path}`, {
+  // Only send credentials for direct-to-upstream requests that deal with
+  // session state — proxied requests authenticate via the Authorization
+  // header above and never need cookies of their own.
+  const needsCreds = !viaProxy && (init?.withAuth || init?.captureCookie);
+  const res = await fetch(`${targetBase}${targetPath}`, {
     ...init,
     headers,
     ...(needsCreds ? { credentials: "include" as const } : {}),
   });
-  if (init?.captureCookie) {
+  if (init?.captureCookie && !viaProxy) {
     const raw = res.headers.get("set-cookie");
     const parsed = parseSetCookie(raw);
     if (parsed) sessionCookie = parsed;
@@ -72,7 +97,11 @@ async function request<T>(
     }
     throw new Error(msg);
   }
-  return (await res.json()) as T;
+  const json = (await res.json()) as any;
+  if (init?.captureCookie && viaProxy && json?.token) {
+    sessionCookie = json.token;
+  }
+  return json as T;
 }
 
 export const upstream = <T>(path: string, init?: Parameters<typeof request>[2]) =>
@@ -80,3 +109,15 @@ export const upstream = <T>(path: string, init?: Parameters<typeof request>[2]) 
 
 export const local = <T>(path: string, init?: Parameters<typeof request>[2]) =>
   request<T>(LOCAL_BASE, path, init);
+
+/** Local backend endpoints that need to know the signed-in user (cart), but
+ * aren't part of the upstream-session proxy above — the local backend
+ * resolves the user itself from this bearer credential on every call. */
+export const localAuthed = <T>(path: string, init?: RequestInit) => {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    ...((init?.headers as Record<string, string>) || {}),
+  };
+  if (sessionCookie) headers["Authorization"] = `Bearer ${sessionCookie}`;
+  return request<T>(LOCAL_BASE, path, { ...init, headers });
+};

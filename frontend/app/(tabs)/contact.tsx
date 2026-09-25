@@ -45,8 +45,7 @@ export default function ContactScreen() {
       icon: "location-outline",
       label: "Head Office",
       value:
-        settings?.address ??
-        "Door No 76, F2, 3rd Annai, Abirami Nagar, Thiruverkadu, Chennai – 600077",
+  "2nd Floor, W Block, 124, 3rd Avenue, Anna Nagar, Chennai – 600040, Tamil Nadu, India",
       testID: "contact-address",
     },
   ];
@@ -110,7 +109,7 @@ export default function ContactScreen() {
             </View>
           </>
         ) : null}
-        <SiteFooter />
+              
       </ScrollView>
     </SafeAreaView>
   );

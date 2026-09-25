@@ -15,12 +15,14 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 
 import { fetchProductBySlug } from "@/src/api";
 import type { Product } from "@/src/api/types";
+import { useAddToCartAction } from "@/src/hooks/useAddToCartAction";
 import { colors, font, radius, shadow, spacing } from "@/src/theme";
 
 export default function ProductDetail() {
   const router = useRouter();
   const { slug } = useLocalSearchParams<{ slug: string }>();
   const { width } = useWindowDimensions();
+  const { addToCart, isPending } = useAddToCartAction();
 
   const [product, setProduct] = useState<Product | null>(null);
   const [loading, setLoading] = useState(true);
@@ -142,24 +144,48 @@ export default function ProductDetail() {
           </ScrollView>
 
           <View style={styles.footer}>
-            <TouchableOpacity
-              style={styles.rfqCta}
-              onPress={() =>
-                router.push({
-                  pathname: "/(tabs)/rfq",
-                  params: {
-                    productSlug: product.slug,
-                    productName: product.name,
-                    category: product.category,
-                  },
-                })
-              }
-              activeOpacity={0.9}
-              testID="product-request-quote-button"
-            >
-              <Ionicons name="document-text-outline" size={18} color="#FFFFFF" />
-              <Text style={styles.rfqCtaText}>Request Quote</Text>
-            </TouchableOpacity>
+            <View style={styles.ctaRow}>
+              <TouchableOpacity
+                style={[styles.cartCta, isPending(product.id ?? product.slug) && styles.ctaBusy]}
+                onPress={() =>
+                  addToCart({
+                    productId: product.id,
+                    slug: product.slug,
+                    name: product.name,
+                  })
+                }
+                activeOpacity={0.9}
+                disabled={isPending(product.id ?? product.slug)}
+                testID="product-add-to-cart-button"
+              >
+                {isPending(product.id ?? product.slug) ? (
+                  <ActivityIndicator color={colors.brand} />
+                ) : (
+                  <>
+                    <Ionicons name="cart-outline" size={18} color={colors.brand} />
+                    <Text style={styles.cartCtaText}>Add to Cart</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.rfqCta}
+                onPress={() =>
+                  router.push({
+                    pathname: "/(tabs)/rfq",
+                    params: {
+                      productSlug: product.slug,
+                      productName: product.name,
+                      category: product.category,
+                    },
+                  })
+                }
+                activeOpacity={0.9}
+                testID="product-request-quote-button"
+              >
+                <Ionicons name="document-text-outline" size={18} color="#FFFFFF" />
+                <Text style={styles.rfqCtaText}>Request Quote</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </>
       )}
@@ -283,6 +309,7 @@ const styles = StyleSheet.create({
     ...shadow.card,
   },
   rfqCta: {
+    flex: 1,
     backgroundColor: colors.brand,
     borderRadius: radius.md,
     paddingVertical: spacing.lg,
@@ -292,4 +319,22 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   rfqCtaText: { color: "#FFFFFF", fontSize: font.lg, fontWeight: "500" },
+  ctaRow: {
+    flexDirection: "row",
+    gap: spacing.sm,
+  },
+  cartCta: {
+    flex: 1,
+    backgroundColor: "#FFFFFF",
+    borderRadius: radius.md,
+    paddingVertical: spacing.lg,
+    alignItems: "center",
+    justifyContent: "center",
+    flexDirection: "row",
+    gap: spacing.sm,
+    borderWidth: 1.5,
+    borderColor: colors.brand,
+  },
+  cartCtaText: { color: colors.brand, fontSize: font.lg, fontWeight: "500" },
+  ctaBusy: { opacity: 0.7 },
 });

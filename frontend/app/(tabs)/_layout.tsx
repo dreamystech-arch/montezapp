@@ -1,9 +1,10 @@
 import { Tabs } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { Linking, Platform, StyleSheet } from "react-native";
+import { Linking, Platform, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { colors } from "@/src/theme";
+import { useCart } from "@/src/context/CartContext";
 
 const GET_YOUR_STORE_URL = "https://montezinfobyte.com/get-your-store";
 
@@ -15,6 +16,27 @@ function tabIcon(name: IconName) {
   );
   IconComp.displayName = `TabIcon_${name}`;
   return IconComp;
+}
+
+function CartTabIcon({ color, size }: { color: string; size: number }) {
+  const { cart } = useCart();
+  const count = cart.itemCount ?? 0;
+  return (
+    <View testID="tab-cart-icon" style={{ width: size + 8, height: size + 8, alignItems: "center", justifyContent: "center" }}>
+      <Ionicons name="cart-outline" color={color} size={size} />
+      {count > 0 ? (
+        <View style={{
+          position: "absolute", top: -2, right: -2, minWidth: 16, height: 16,
+          borderRadius: 8, backgroundColor: colors.brand, alignItems: "center",
+          justifyContent: "center", paddingHorizontal: 3,
+        }} testID="tab-cart-badge">
+          <Text style={{ color: "#fff", fontSize: 10, fontWeight: "600" }}>
+            {count > 99 ? "99+" : String(count)}
+          </Text>
+        </View>
+      ) : null}
+    </View>
+  );
 }
 
 export default function TabsLayout() {
@@ -49,6 +71,14 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="products"
         options={{ title: "Products", tabBarIcon: tabIcon("grid-outline"), tabBarTestID: "tab-products" }}
+      />
+      <Tabs.Screen
+        name="cart"
+        options={{
+          title: "Cart",
+          tabBarIcon: CartTabIcon,
+          tabBarTestID: "tab-cart",
+        }}
       />
       <Tabs.Screen
         name="rfq"

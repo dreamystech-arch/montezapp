@@ -22,6 +22,7 @@ export type Category = {
   name: string;
   icon?: string;
   desc?: string;
+  image?: string;
 };
 
 export type SiteSettings = {
@@ -41,6 +42,24 @@ export type SiteSettings = {
   primaryColor: string;
   logoUrl: string;
   faviconUrl: string;
+};
+
+export type CartItem = {
+  id?: string;
+  productId?: string;
+  slug?: string;
+  name?: string;
+  image?: string;
+  price?: number | string;
+  quantity: number;
+  [k: string]: any;
+};
+
+export type Cart = {
+  items: CartItem[];
+  total?: number;
+  subtotal?: number;
+  itemCount?: number;
 };
 
 export type FooterLink = { label: string; href: string };
