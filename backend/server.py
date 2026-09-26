@@ -778,6 +778,8 @@ def _order_summary(order: dict, include_customer: bool = False) -> dict:
         "subtotal": order.get("subtotal"),
         "total": order.get("total"),
         "status": order.get("status"),
+        "paymentStatus": order.get("paymentStatus"),
+        "paymentProvider": order.get("paymentProvider"),
         "createdAt": order.get("createdAt"),
     }
     if include_customer:

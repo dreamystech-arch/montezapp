@@ -26,8 +26,9 @@ import {
   useAsyncData,
 } from "@/src/components/dashboards/shared";
 import { colors, spacing } from "@/src/theme";
+import { WalletPage } from "@/src/components/dashboards/WalletPage";
 
-type Page = "dashboard" | "profile" | "orders" | "quotes" | "wishlist";
+type Page = "dashboard" | "profile" | "orders" | "quotes" | "wishlist" | "wallet";
 
 const MENU: MenuItem<Page>[] = [
   { key: "dashboard", label: "Dashboard", icon: "speedometer-outline" },
@@ -35,6 +36,7 @@ const MENU: MenuItem<Page>[] = [
   { key: "orders", label: "Orders", icon: "bag-handle-outline" },
   { key: "quotes", label: "Saved Quotes", icon: "bookmark-outline" },
   { key: "wishlist", label: "Wishlist", icon: "heart-outline" },
+  { key: "wallet", label: "Wallet & Referrals", icon: "wallet-outline" },
 ];
 
 export function CustomerDashboard({ user, onLogout }: { user: User; onLogout: () => void }) {
@@ -54,6 +56,7 @@ export function CustomerDashboard({ user, onLogout }: { user: User; onLogout: ()
       {page === "orders" ? <OrdersPage /> : null}
       {page === "quotes" ? <QuotesPage /> : null}
       {page === "wishlist" ? <WishlistPage /> : null}
+      {page === "wallet" ? <WalletPage /> : null}
     </DashboardShell>
   );
 }

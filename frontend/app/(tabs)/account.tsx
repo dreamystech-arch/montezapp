@@ -22,6 +22,7 @@ import { useApp } from "@/src/context/AppContext";
 import { registerForPushAsync } from "@/src/utils/push";
 import { colors, font, radius, spacing } from "@/src/theme";
 import { getSessionCookie } from "@/src/api/client";
+import { claimCapturedInstallReward } from "@/src/utils/referrals";
 
 type Step = "email" | "code";
 const ROLES: { value: Role; label: string; icon: React.ComponentProps<typeof Ionicons>["name"] }[] = [
@@ -104,6 +105,12 @@ export default function AccountScreen() {
       const res = await verifyAuthOtp(email.trim(), code);
       const cookie = getSessionCookie();
       await setSession(cookie, res.user);
+      try {
+        const reward = await claimCapturedInstallReward();
+        if (reward?.eligible) setInfo("Your ₹50 install reward has been added to your wallet.");
+      } catch {
+        // Wallet rewards can be retried from the Wallet & Referrals screen.
+      }
       if (res.user?.id) {
         registerForPushAsync(res.user.id);
       }

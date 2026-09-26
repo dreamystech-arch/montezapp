@@ -5,6 +5,7 @@ import { authLogout, fetchMe, fetchMobileCMS, fetchSettings } from "@/src/api";
 import { setSessionCookie } from "@/src/api/client";
 import type { MobileCMS, SiteSettings, User } from "@/src/api/types";
 import { storage } from "@/src/utils/storage";
+import { capturePlayInstallReferrer } from "@/src/utils/referrals";
 
 const SESSION_COOKIE_KEY = "montez_session_cookie";
 const USER_KEY = "montez_auth_user";
@@ -102,6 +103,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [setSession]);
 
   useEffect(() => {
+    void capturePlayInstallReferrer();
     (async () => {
       const [savedCookie, savedUser] = await Promise.all([
         storage.secureGet<string>(SESSION_COOKIE_KEY, ""),

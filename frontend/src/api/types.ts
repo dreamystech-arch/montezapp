@@ -116,6 +116,28 @@ export type User = {
   createdAt?: string;
 };
 
+export type WalletTransaction = {
+  id: string;
+  amount: number;
+  type: string;
+  description: string;
+  balanceAfter: number;
+  mock?: boolean;
+  createdAt: string;
+};
+
+export type WalletSnapshot = {
+  balance: number;
+  mockBalance: number;
+  withdrawableBalance: number;
+  transactions: WalletTransaction[];
+  referralCode: string;
+  referralLink: string;
+  successfulReferrals: number;
+  withdrawMinimum: number;
+  mockTopupsEnabled: boolean;
+};
+
 export type RFQ = {
   id: string;
   name: string;

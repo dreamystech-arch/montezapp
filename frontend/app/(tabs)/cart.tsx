@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Image,
@@ -15,6 +15,8 @@ import { useRouter } from "expo-router";
 
 import { useApp } from "@/src/context/AppContext";
 import { useCart } from "@/src/context/CartContext";
+import { checkoutWithWallet, fetchWallet } from "@/src/api";
+import type { WalletSnapshot } from "@/src/api/types";
 import { colors, font, radius, shadow, spacing } from "@/src/theme";
 
 export default function CartScreen() {
@@ -25,6 +27,12 @@ export default function CartScreen() {
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [checkingOut, setCheckingOut] = useState(false);
   const [banner, setBanner] = useState<string | null>(null);
+  const [wallet, setWallet] = useState<WalletSnapshot | null>(null);
+
+  useEffect(() => {
+    if (!user) return;
+    fetchWallet().then(setWallet).catch(() => setWallet(null));
+  }, [user?.id]);
 
   const onQty = useCallback(
     async (productId: string, next: number) => {
@@ -56,6 +64,20 @@ export default function CartScreen() {
       setCheckingOut(false);
     }
   }, [checkout]);
+
+  const onWalletCheckout = useCallback(async () => {
+    setCheckingOut(true);
+    setBanner(null);
+    try {
+      const res = await checkoutWithWallet();
+      setBanner(`Order ${res.order.number} paid from your wallet.`);
+      await Promise.all([refresh(), fetchWallet().then(setWallet)]);
+    } catch (e: any) {
+      setBanner(e?.message ?? "Wallet checkout failed. Please try again.");
+    } finally {
+      setCheckingOut(false);
+    }
+  }, [refresh]);
 
   if (!user) {
     return (
@@ -197,6 +219,21 @@ export default function CartScreen() {
               </>
             )}
           </TouchableOpacity>
+          <Text style={styles.walletHint}>
+            Wallet balance: ₹{Number(wallet?.balance ?? 0).toLocaleString("en-IN")}
+          </Text>
+          <TouchableOpacity
+            style={[styles.walletCheckout, (checkingOut || !wallet || wallet.balance < Number(cart.subtotal ?? 0)) && { opacity: 0.5 }]}
+            onPress={onWalletCheckout}
+            disabled={checkingOut || !wallet || wallet.balance < Number(cart.subtotal ?? 0)}
+            activeOpacity={0.9}
+            testID="cart-wallet-checkout-button"
+          >
+            {checkingOut ? <ActivityIndicator color="#FFFFFF" /> : <>
+              <Ionicons name="wallet-outline" size={18} color="#FFFFFF" />
+              <Text style={styles.checkoutText}>Pay with Wallet</Text>
+            </>}
+          </TouchableOpacity>
         </View>
       ) : null}
     </SafeAreaView>
@@ -283,4 +320,6 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   checkoutText: { color: "#FFFFFF", fontSize: font.lg, fontWeight: "500" },
+  walletHint: { color: colors.onSurfaceSecondary, textAlign: "center", fontSize: font.sm, marginTop: spacing.sm },
+  walletCheckout: { marginTop: spacing.sm, minHeight: 52, borderRadius: radius.md, backgroundColor: colors.success, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: spacing.sm },
 });

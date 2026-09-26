@@ -12,6 +12,7 @@ import type {
   Role,
   SiteSettings,
   User,
+  WalletSnapshot,
 } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -275,6 +276,47 @@ export async function fetchAdminOrders() {
     headers: { "X-Admin-Token": LOCAL_ADMIN_TOKEN },
   });
   return Array.isArray(res) ? res : res.items ?? [];
+}
+
+// Wallet and referral data are served by the website API so the app and the
+// website admin panel operate on the same authenticated user and database.
+export async function fetchWallet() {
+  return upstream<WalletSnapshot>("/api/wallet", { withAuth: true });
+}
+
+export async function createMockWalletTopup(amount: number) {
+  return upstream<{ ok: boolean; wallet: WalletSnapshot }>("/api/wallet/recharge/mock", {
+    method: "POST",
+    withAuth: true,
+    body: JSON.stringify({ amount }),
+  });
+}
+
+export async function claimInstallReward(code?: string, installReferrer?: string, testMode = false) {
+  return upstream<{ ok: boolean; eligible?: boolean; alreadyClaimed?: boolean; wallet?: WalletSnapshot; message?: string }>(
+    "/api/wallet/referrals/claim",
+    { method: "POST", withAuth: true, body: JSON.stringify({ code: code?.trim() || "", installReferrer, testMode, source: installReferrer ? "google_play" : undefined }) },
+  );
+}
+
+export async function requestWalletPayout(amount: number, payoutAddress: string) {
+  return upstream<{ ok: boolean; payout: any }>("/api/wallet/payouts", {
+    method: "POST",
+    withAuth: true,
+    body: JSON.stringify({ amount, payoutAddress }),
+  });
+}
+
+export async function fetchWalletPayouts() {
+  const res = await upstream<{ items: any[] }>("/api/wallet/payouts", { withAuth: true });
+  return res.items ?? [];
+}
+
+export async function checkoutWithWallet() {
+  return upstream<{ ok: boolean; order: { id: string; number: string; totals: { total: number } }; wallet: WalletSnapshot }>(
+    "/api/wallet/checkout",
+    { method: "POST", withAuth: true, body: JSON.stringify({}) },
+  );
 }
 
 // ---------------------------------------------------------------------------
