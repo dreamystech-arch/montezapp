@@ -1,0 +1,533 @@
+diff --git a/backend/server.py b/backend/server.py
+index 03588d4..f59e0cd 100644
+--- a/backend/server.py
++++ b/backend/server.py
+@@ -778,6 +778,8 @@ def _order_summary(order: dict, include_customer: bool = False) -> dict:
+         "subtotal": order.get("subtotal"),
+         "total": order.get("total"),
+         "status": order.get("status"),
++        "paymentStatus": order.get("paymentStatus"),
++        "paymentProvider": order.get("paymentProvider"),
+         "createdAt": order.get("createdAt"),
+     }
+     if include_customer:
+diff --git a/frontend/app/(tabs)/account.tsx b/frontend/app/(tabs)/account.tsx
+index a54bffa..f5e0dbc 100644
+--- a/frontend/app/(tabs)/account.tsx
++++ b/frontend/app/(tabs)/account.tsx
+@@ -22,6 +22,7 @@ import { useApp } from "@/src/context/AppContext";
+ import { registerForPushAsync } from "@/src/utils/push";
+ import { colors, font, radius, spacing } from "@/src/theme";
+ import { getSessionCookie } from "@/src/api/client";
++import { claimCapturedInstallReward } from "@/src/utils/referrals";
+ 
+ type Step = "email" | "code";
+ const ROLES: { value: Role; label: string; icon: React.ComponentProps<typeof Ionicons>["name"] }[] = [
+@@ -104,6 +105,12 @@ export default function AccountScreen() {
+       const res = await verifyAuthOtp(email.trim(), code);
+       const cookie = getSessionCookie();
+       await setSession(cookie, res.user);
++      try {
++        const reward = await claimCapturedInstallReward();
++        if (reward?.eligible) setInfo("Your ₹50 install reward has been added to your wallet.");
++      } catch {
++        // Wallet rewards can be retried from the Wallet & Referrals screen.
++      }
+       if (res.user?.id) {
+         registerForPushAsync(res.user.id);
+       }
+diff --git a/frontend/app/(tabs)/cart.tsx b/frontend/app/(tabs)/cart.tsx
+index d5f1882..f9408c5 100644
+--- a/frontend/app/(tabs)/cart.tsx
++++ b/frontend/app/(tabs)/cart.tsx
+@@ -1,4 +1,4 @@
+-import { useCallback, useState } from "react";
++import { useCallback, useEffect, useState } from "react";
+ import {
+   ActivityIndicator,
+   Image,
+@@ -15,6 +15,8 @@ import { useRouter } from "expo-router";
+ 
+ import { useApp } from "@/src/context/AppContext";
+ import { useCart } from "@/src/context/CartContext";
++import { checkoutWithWallet, fetchWallet } from "@/src/api";
++import type { WalletSnapshot } from "@/src/api/types";
+ import { colors, font, radius, shadow, spacing } from "@/src/theme";
+ 
+ export default function CartScreen() {
+@@ -25,6 +27,12 @@ export default function CartScreen() {
+   const [busyKey, setBusyKey] = useState<string | null>(null);
+   const [checkingOut, setCheckingOut] = useState(false);
+   const [banner, setBanner] = useState<string | null>(null);
++  const [wallet, setWallet] = useState<WalletSnapshot | null>(null);
++
++  useEffect(() => {
++    if (!user) return;
++    fetchWallet().then(setWallet).catch(() => setWallet(null));
++  }, [user?.id]);
+ 
+   const onQty = useCallback(
+     async (productId: string, next: number) => {
+@@ -57,6 +65,20 @@ export default function CartScreen() {
+     }
+   }, [checkout]);
+ 
++  const onWalletCheckout = useCallback(async () => {
++    setCheckingOut(true);
++    setBanner(null);
++    try {
++      const res = await checkoutWithWallet();
++      setBanner(`Order ${res.order.number} paid from your wallet.`);
++      await Promise.all([refresh(), fetchWallet().then(setWallet)]);
++    } catch (e: any) {
++      setBanner(e?.message ?? "Wallet checkout failed. Please try again.");
++    } finally {
++      setCheckingOut(false);
++    }
++  }, [refresh]);
++
+   if (!user) {
+     return (
+       <SafeAreaView style={styles.container} edges={["top"]} testID="cart-screen">
+@@ -197,6 +219,21 @@ export default function CartScreen() {
+               </>
+             )}
+           </TouchableOpacity>
++          <Text style={styles.walletHint}>
++            Wallet balance: ₹{Number(wallet?.balance ?? 0).toLocaleString("en-IN")}
++          </Text>
++          <TouchableOpacity
++            style={[styles.walletCheckout, (checkingOut || !wallet || wallet.balance < Number(cart.subtotal ?? 0)) && { opacity: 0.5 }]}
++            onPress={onWalletCheckout}
++            disabled={checkingOut || !wallet || wallet.balance < Number(cart.subtotal ?? 0)}
++            activeOpacity={0.9}
++            testID="cart-wallet-checkout-button"
++          >
++            {checkingOut ? <ActivityIndicator color="#FFFFFF" /> : <>
++              <Ionicons name="wallet-outline" size={18} color="#FFFFFF" />
++              <Text style={styles.checkoutText}>Pay with Wallet</Text>
++            </>}
++          </TouchableOpacity>
+         </View>
+       ) : null}
+     </SafeAreaView>
+@@ -283,4 +320,6 @@ const styles = StyleSheet.create({
+     gap: spacing.sm,
+   },
+   checkoutText: { color: "#FFFFFF", fontSize: font.lg, fontWeight: "500" },
++  walletHint: { color: colors.onSurfaceSecondary, textAlign: "center", fontSize: font.sm, marginTop: spacing.sm },
++  walletCheckout: { marginTop: spacing.sm, minHeight: 52, borderRadius: radius.md, backgroundColor: colors.success, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: spacing.sm },
+ });
+diff --git a/frontend/package.json b/frontend/package.json
+index d93b55c..00cd390 100644
+--- a/frontend/package.json
++++ b/frontend/package.json
+@@ -39,6 +39,7 @@
+     "react-native": "0.81.5",
+     "react-native-dotenv": "3.4.11",
+     "react-native-gesture-handler": "2.28.0",
++    "react-native-play-install-referrer": "2.0.1",
+     "react-native-reanimated": "4.1.1",
+     "react-native-safe-area-context": "5.6.0",
+     "react-native-screens": "4.16.0",
+diff --git a/frontend/src/api/index.ts b/frontend/src/api/index.ts
+index 62af7e3..6bd9bd5 100644
+--- a/frontend/src/api/index.ts
++++ b/frontend/src/api/index.ts
+@@ -12,6 +12,7 @@ import type {
+   Role,
+   SiteSettings,
+   User,
++  WalletSnapshot,
+ } from "./types";
+ 
+ // ---------------------------------------------------------------------------
+@@ -277,6 +278,47 @@ export async function fetchAdminOrders() {
+   return Array.isArray(res) ? res : res.items ?? [];
+ }
+ 
++// Wallet and referral data are served by the website API so the app and the
++// website admin panel operate on the same authenticated user and database.
++export async function fetchWallet() {
++  return upstream<WalletSnapshot>("/api/wallet", { withAuth: true });
++}
++
++export async function createMockWalletTopup(amount: number) {
++  return upstream<{ ok: boolean; wallet: WalletSnapshot }>("/api/wallet/recharge/mock", {
++    method: "POST",
++    withAuth: true,
++    body: JSON.stringify({ amount }),
++  });
++}
++
++export async function claimInstallReward(code?: string, installReferrer?: string, testMode = false) {
++  return upstream<{ ok: boolean; eligible?: boolean; alreadyClaimed?: boolean; wallet?: WalletSnapshot; message?: string }>(
++    "/api/wallet/referrals/claim",
++    { method: "POST", withAuth: true, body: JSON.stringify({ code: code?.trim() || "", installReferrer, testMode, source: installReferrer ? "google_play" : undefined }) },
++  );
++}
++
++export async function requestWalletPayout(amount: number, payoutAddress: string) {
++  return upstream<{ ok: boolean; payout: any }>("/api/wallet/payouts", {
++    method: "POST",
++    withAuth: true,
++    body: JSON.stringify({ amount, payoutAddress }),
++  });
++}
++
++export async function fetchWalletPayouts() {
++  const res = await upstream<{ items: any[] }>("/api/wallet/payouts", { withAuth: true });
++  return res.items ?? [];
++}
++
++export async function checkoutWithWallet() {
++  return upstream<{ ok: boolean; order: { id: string; number: string; totals: { total: number } }; wallet: WalletSnapshot }>(
++    "/api/wallet/checkout",
++    { method: "POST", withAuth: true, body: JSON.stringify({}) },
++  );
++}
++
+ // ---------------------------------------------------------------------------
+ // Cart & checkout
+ // ---------------------------------------------------------------------------
+diff --git a/frontend/src/api/types.ts b/frontend/src/api/types.ts
+index 3b27f2c..51d2197 100644
+--- a/frontend/src/api/types.ts
++++ b/frontend/src/api/types.ts
+@@ -116,6 +116,28 @@ export type User = {
+   createdAt?: string;
+ };
+ 
++export type WalletTransaction = {
++  id: string;
++  amount: number;
++  type: string;
++  description: string;
++  balanceAfter: number;
++  mock?: boolean;
++  createdAt: string;
++};
++
++export type WalletSnapshot = {
++  balance: number;
++  mockBalance: number;
++  withdrawableBalance: number;
++  transactions: WalletTransaction[];
++  referralCode: string;
++  referralLink: string;
++  successfulReferrals: number;
++  withdrawMinimum: number;
++  mockTopupsEnabled: boolean;
++};
++
+ export type RFQ = {
+   id: string;
+   name: string;
+diff --git a/frontend/src/components/dashboards/CustomerDashboard.tsx b/frontend/src/components/dashboards/CustomerDashboard.tsx
+index cc1cd9e..98f6ed1 100644
+--- a/frontend/src/components/dashboards/CustomerDashboard.tsx
++++ b/frontend/src/components/dashboards/CustomerDashboard.tsx
+@@ -26,8 +26,9 @@ import {
+   useAsyncData,
+ } from "@/src/components/dashboards/shared";
+ import { colors, spacing } from "@/src/theme";
++import { WalletPage } from "@/src/components/dashboards/WalletPage";
+ 
+-type Page = "dashboard" | "profile" | "orders" | "quotes" | "wishlist";
++type Page = "dashboard" | "profile" | "orders" | "quotes" | "wishlist" | "wallet";
+ 
+ const MENU: MenuItem<Page>[] = [
+   { key: "dashboard", label: "Dashboard", icon: "speedometer-outline" },
+@@ -35,6 +36,7 @@ const MENU: MenuItem<Page>[] = [
+   { key: "orders", label: "Orders", icon: "bag-handle-outline" },
+   { key: "quotes", label: "Saved Quotes", icon: "bookmark-outline" },
+   { key: "wishlist", label: "Wishlist", icon: "heart-outline" },
++  { key: "wallet", label: "Wallet & Referrals", icon: "wallet-outline" },
+ ];
+ 
+ export function CustomerDashboard({ user, onLogout }: { user: User; onLogout: () => void }) {
+@@ -54,6 +56,7 @@ export function CustomerDashboard({ user, onLogout }: { user: User; onLogout: ()
+       {page === "orders" ? <OrdersPage /> : null}
+       {page === "quotes" ? <QuotesPage /> : null}
+       {page === "wishlist" ? <WishlistPage /> : null}
++      {page === "wallet" ? <WalletPage /> : null}
+     </DashboardShell>
+   );
+ }
+diff --git a/frontend/src/components/dashboards/WalletPage.tsx b/frontend/src/components/dashboards/WalletPage.tsx
+new file mode 100644
+index 0000000..c96e52c
+--- /dev/null
++++ b/frontend/src/components/dashboards/WalletPage.tsx
+@@ -0,0 +1,178 @@
++import { useCallback, useEffect, useState } from "react";
++import { Alert, Share, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
++import { Ionicons } from "@expo/vector-icons";
++
++import { claimInstallReward, createMockWalletTopup, fetchWallet, fetchWalletPayouts, requestWalletPayout } from "@/src/api";
++import type { WalletSnapshot } from "@/src/api/types";
++import {
++  DashboardPageScroll,
++  EmptyPanel,
++  ErrorPanel,
++  LoadingBlock,
++  SectionTitle,
++  useAsyncData,
++} from "@/src/components/dashboards/shared";
++import { colors, radius, spacing } from "@/src/theme";
++
++const money = (amount: number) => `₹${Number(amount || 0).toLocaleString("en-IN", { maximumFractionDigits: 2 })}`;
++
++export function WalletPage() {
++  const loader = useCallback(() => fetchWallet(), []);
++  const { state, refresh, refreshing } = useAsyncData<WalletSnapshot>(loader);
++  const [topupAmount, setTopupAmount] = useState("100");
++  const [referralCode, setReferralCode] = useState("");
++  const [payoutAmount, setPayoutAmount] = useState("");
++  const [payoutAddress, setPayoutAddress] = useState("");
++  const [payouts, setPayouts] = useState<any[]>([]);
++  const [busy, setBusy] = useState(false);
++  const snapshot = state.status === "ready" ? state.data : null;
++
++  const loadPayouts = useCallback(async () => {
++    try { setPayouts(await fetchWalletPayouts()); } catch { setPayouts([]); }
++  }, []);
++
++  useEffect(() => { void loadPayouts(); }, [loadPayouts]);
++
++  const perform = async (action: () => Promise<void>) => {
++    if (busy) return;
++    setBusy(true);
++    try {
++      await action();
++      await refresh();
++      await loadPayouts();
++    } catch (error: any) {
++      Alert.alert("Wallet", error?.message || "Please try again.");
++    } finally {
++      setBusy(false);
++    }
++  };
++
++  return (
++    <DashboardPageScroll onRefresh={refresh} refreshing={refreshing} testID="customer-page-wallet">
++      <SectionTitle>My Wallet</SectionTitle>
++      {state.status === "loading" ? <LoadingBlock /> : null}
++      {state.status === "error" ? <ErrorPanel error={state.error} onRetry={refresh} testID="customer-wallet-error" /> : null}
++      {snapshot ? (
++        <>
++          <View style={styles.balanceCard}>
++            <Text style={styles.eyebrow}>AVAILABLE BALANCE</Text>
++            <Text style={styles.balance}>{money(snapshot.balance)}</Text>
++            <Text style={styles.helper}>Withdrawable: {money(snapshot.withdrawableBalance)}</Text>
++            {snapshot.mockBalance > 0 ? <Text style={styles.mockNote}>Includes {money(snapshot.mockBalance)} in test credits. Test credits cannot be withdrawn.</Text> : null}
++          </View>
++
++          <View style={styles.card}>
++            <Text style={styles.cardTitle}>Add money</Text>
++            {snapshot.mockTopupsEnabled ? (
++              <>
++                <Text style={styles.helper}>Test recharge only. No payment is taken.</Text>
++                <View style={styles.formRow}>
++                  <TextInput value={topupAmount} onChangeText={setTopupAmount} keyboardType="decimal-pad" placeholder="Amount in ₹" style={styles.input} />
++                  <TouchableOpacity style={styles.button} disabled={busy} onPress={() => perform(async () => {
++                    const amount = Number(topupAmount);
++                    if (!Number.isFinite(amount) || amount < 100) throw new Error("Enter at least ₹100.");
++                    await createMockWalletTopup(amount);
++                  })}>
++                    <Text style={styles.buttonText}>{busy ? "Please wait…" : "Test recharge"}</Text>
++                  </TouchableOpacity>
++                </View>
++              </>
++            ) : <Text style={styles.helper}>Online recharge will be available after a payment provider is connected.</Text>}
++          </View>
++
++          <View style={styles.card}>
++            <View style={styles.titleRow}>
++              <View><Text style={styles.cardTitle}>Invite friends</Text><Text style={styles.helper}>You and a new customer each receive ₹50 after a successful install and sign-up.</Text></View>
++            </View>
++            <View style={styles.codeBox}><Text style={styles.codeLabel}>YOUR CODE</Text><Text style={styles.code}>{snapshot.referralCode}</Text></View>
++            <TouchableOpacity style={styles.outlineButton} onPress={() => Share.share({ message: `Join Montez with my referral link: ${snapshot.referralLink}` })}>
++              <Ionicons name="share-social-outline" size={17} color={colors.brand} /><Text style={styles.outlineButtonText}>Share Play Store link</Text>
++            </TouchableOpacity>
++            {snapshot.mockTopupsEnabled ? <>
++              <Text style={[styles.helper, { marginTop: spacing.md }]}>Test install rewards: enter a friend’s code, or leave it blank for a direct install.</Text>
++              <TextInput value={referralCode} onChangeText={setReferralCode} autoCapitalize="characters" placeholder="Test referral code (optional)" style={styles.input} />
++              <TouchableOpacity style={styles.button} disabled={busy} onPress={() => perform(async () => {
++                const result = await claimInstallReward(referralCode, undefined, true);
++                if (result.message) Alert.alert("Referral", result.message);
++                else if (result.alreadyClaimed) Alert.alert("Referral", "This account has already claimed its install reward.");
++                setReferralCode("");
++              })}>
++                <Text style={styles.buttonText}>Test install reward</Text>
++              </TouchableOpacity>
++            </> : null}
++            <Text style={styles.helper}>Successful referrals: {snapshot.successfulReferrals}</Text>
++          </View>
++
++          <View style={styles.card}>
++            <Text style={styles.cardTitle}>Request a withdrawal</Text>
++            <Text style={styles.helper}>Available after your withdrawable balance reaches {money(snapshot.withdrawMinimum)}. Payouts are reviewed by the Montez team.</Text>
++            <TextInput value={payoutAmount} onChangeText={setPayoutAmount} keyboardType="decimal-pad" placeholder="Amount in ₹" style={styles.input} />
++            <TextInput value={payoutAddress} onChangeText={setPayoutAddress} autoCapitalize="none" placeholder="UPI ID or payout contact" style={styles.input} />
++            <TouchableOpacity
++              style={[styles.button, snapshot.withdrawableBalance < snapshot.withdrawMinimum && styles.disabledButton]}
++              disabled={busy || snapshot.withdrawableBalance < snapshot.withdrawMinimum}
++              onPress={() => perform(async () => {
++                const amount = Number(payoutAmount);
++                if (!Number.isFinite(amount) || amount <= 0) throw new Error("Enter a valid payout amount.");
++                await requestWalletPayout(amount, payoutAddress);
++                setPayoutAmount("");
++                setPayoutAddress("");
++                Alert.alert("Request sent", "Your payout request is waiting for admin review.");
++              })}
++            >
++              <Text style={styles.buttonText}>Request payout</Text>
++            </TouchableOpacity>
++            {payouts.length > 0 ? <View style={{ marginTop: spacing.md, gap: spacing.sm }}>
++              <Text style={styles.cardTitle}>Your payout requests</Text>
++              {payouts.slice(0, 10).map((payout) => <View key={payout.id} style={styles.payoutRow}>
++                <Text style={styles.transactionTitle}>{money(payout.amountPaise / 100)}</Text>
++                <Text style={styles.transactionMeta}>{payout.status} · {new Date(payout.createdAt).toLocaleDateString()}</Text>
++              </View>)}
++            </View> : null}
++          </View>
++
++          <SectionTitle>Recent transactions</SectionTitle>
++          {snapshot.transactions.length === 0 ? <EmptyPanel icon="receipt-outline" title="No transactions yet" hint="Wallet activity will appear here." testID="customer-wallet-empty" /> :
++            snapshot.transactions.map((tx) => (
++              <View key={tx.id} style={styles.transaction}>
++                <View style={{ flex: 1 }}>
++                  <Text style={styles.transactionTitle}>{tx.description}</Text>
++                  <Text style={styles.transactionMeta}>{new Date(tx.createdAt).toLocaleDateString()}</Text>
++                  {tx.mock ? <Text style={styles.mockTag}>TEST</Text> : null}
++                </View>
++                <Text style={[styles.transactionAmount, tx.amount < 0 && styles.debit]}>{tx.amount >= 0 ? "+" : "−"}{money(Math.abs(tx.amount))}</Text>
++              </View>
++            ))}
++        </>
++      ) : null}
++    </DashboardPageScroll>
++  );
++}
++
++const styles = StyleSheet.create({
++  balanceCard: { marginHorizontal: spacing.lg, marginBottom: spacing.md, borderRadius: radius.lg, backgroundColor: colors.brand, padding: spacing.lg },
++  eyebrow: { color: "#FFFFFFB3", fontSize: 11, letterSpacing: 1.1, fontWeight: "600" },
++  balance: { color: "#FFFFFF", fontSize: 34, fontWeight: "700", marginTop: spacing.xs },
++  helper: { color: colors.onSurfaceSecondary, fontSize: 13, lineHeight: 19, marginTop: spacing.xs },
++  mockNote: { color: "#FFF0C2", fontSize: 12, lineHeight: 17, marginTop: spacing.xs },
++  card: { marginHorizontal: spacing.lg, marginBottom: spacing.md, borderRadius: radius.md, backgroundColor: colors.surface, padding: spacing.md, borderWidth: 1, borderColor: colors.border },
++  cardTitle: { color: colors.onSurface, fontSize: 16, fontWeight: "700" },
++  titleRow: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between" },
++  formRow: { flexDirection: "row", gap: spacing.sm, marginTop: spacing.sm },
++  input: { minHeight: 44, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingHorizontal: spacing.md, color: colors.onSurface, marginTop: spacing.sm, flex: 1, backgroundColor: "#FFFFFF" },
++  button: { minHeight: 44, alignItems: "center", justifyContent: "center", borderRadius: radius.sm, backgroundColor: colors.brand, paddingHorizontal: spacing.md, marginTop: spacing.sm, flexDirection: "row", gap: spacing.xs },
++  buttonText: { color: "#FFFFFF", fontWeight: "600", fontSize: 13 },
++  disabledButton: { opacity: 0.45 },
++  outlineButton: { minHeight: 44, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: spacing.sm, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.brand, marginTop: spacing.sm },
++  outlineButtonText: { color: colors.brand, fontWeight: "600", fontSize: 13 },
++  codeBox: { backgroundColor: colors.surfaceTertiary, borderRadius: radius.sm, padding: spacing.md, marginTop: spacing.md },
++  codeLabel: { color: colors.onSurfaceSecondary, fontSize: 10, letterSpacing: 1, fontWeight: "600" },
++  code: { color: colors.brand, fontSize: 22, fontWeight: "700", marginTop: 2, letterSpacing: 1.2 },
++  transaction: { marginHorizontal: spacing.lg, paddingVertical: spacing.md, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border, flexDirection: "row", alignItems: "center", gap: spacing.md },
++  transactionTitle: { color: colors.onSurface, fontSize: 13, fontWeight: "600" },
++  transactionMeta: { color: colors.onSurfaceSecondary, fontSize: 11, marginTop: 3 },
++  transactionAmount: { color: colors.success, fontWeight: "600", fontSize: 14 },
++  debit: { color: colors.error },
++  mockTag: { alignSelf: "flex-start", color: colors.warning, fontSize: 9, fontWeight: "700", marginTop: 3 },
++  payoutRow: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border, paddingTop: spacing.sm },
++});
+diff --git a/frontend/src/context/AppContext.tsx b/frontend/src/context/AppContext.tsx
+index e04cb67..77de23b 100644
+--- a/frontend/src/context/AppContext.tsx
++++ b/frontend/src/context/AppContext.tsx
+@@ -5,6 +5,7 @@ import { authLogout, fetchMe, fetchMobileCMS, fetchSettings } from "@/src/api";
+ import { setSessionCookie } from "@/src/api/client";
+ import type { MobileCMS, SiteSettings, User } from "@/src/api/types";
+ import { storage } from "@/src/utils/storage";
++import { capturePlayInstallReferrer } from "@/src/utils/referrals";
+ 
+ const SESSION_COOKIE_KEY = "montez_session_cookie";
+ const USER_KEY = "montez_auth_user";
+@@ -102,6 +103,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
+   }, [setSession]);
+ 
+   useEffect(() => {
++    void capturePlayInstallReferrer();
+     (async () => {
+       const [savedCookie, savedUser] = await Promise.all([
+         storage.secureGet<string>(SESSION_COOKIE_KEY, ""),
+diff --git a/frontend/src/utils/referrals.ts b/frontend/src/utils/referrals.ts
+new file mode 100644
+index 0000000..2006db8
+--- /dev/null
++++ b/frontend/src/utils/referrals.ts
+@@ -0,0 +1,67 @@
++import { Platform } from "react-native";
++
++import { claimInstallReward } from "@/src/api";
++import { storage } from "@/src/utils/storage";
++
++const CHECKED_KEY = "montez_play_referrer_checked";
++const PROOF_KEY = "montez_play_referrer_verified";
++const CODE_KEY = "montez_pending_referral_code";
++const RAW_REFERRER_KEY = "montez_play_install_referrer";
++let pendingCapture: Promise<void> | null = null;
++
++function extractReferralCode(value: string) {
++  let raw = String(value || "").replace(/^\?/, "");
++  try { if (/%3D|%26/i.test(raw)) raw = decodeURIComponent(raw); } catch {}
++  const params = new URLSearchParams(raw);
++  const code = params.get("referral_code") || params.get("code") || "";
++  return code.trim().toUpperCase();
++}
++
++/** Read Play's referrer once on Android and remember it until the new user signs in. */
++async function capturePlayInstallReferrerOnce() {
++  if (Platform.OS !== "android") return;
++  if (await storage.getItem<boolean>(CHECKED_KEY, false)) return;
++
++  try {
++    const { PlayInstallReferrer } = await import("react-native-play-install-referrer");
++    const info = await new Promise<{ installReferrer?: string | null }>((resolve, reject) => {
++      PlayInstallReferrer.getInstallReferrerInfo((value, error) => {
++        if (error) reject(new Error(error.message || "Play referral information unavailable"));
++        else resolve(value || {});
++      });
++    });
++    const rawReferrer = String(info.installReferrer || "");
++    if (!rawReferrer) return;
++    const code = extractReferralCode(rawReferrer);
++    await storage.setItem(CODE_KEY, code);
++    await storage.setItem(RAW_REFERRER_KEY, rawReferrer);
++    await storage.setItem(PROOF_KEY, true);
++    await storage.setItem(CHECKED_KEY, true);
++  } catch {
++    // A store-free preview or a sideloaded development build has no Play referrer.
++    // Leave the check open so a later Play-installed build can still capture it.
++  }
++}
++
++export async function capturePlayInstallReferrer() {
++  if (pendingCapture) return pendingCapture;
++  pendingCapture = capturePlayInstallReferrerOnce();
++  try { await pendingCapture; }
++  finally { pendingCapture = null; }
++}
++
++/** Apply the captured install reward after the account is verified by email OTP. */
++export async function claimCapturedInstallReward() {
++  if (Platform.OS !== "android") return null;
++  await capturePlayInstallReferrer();
++  if (!(await storage.getItem<boolean>(PROOF_KEY, false))) return null;
++  const code = (await storage.getItem<string>(CODE_KEY, "")) || "";
++  const installReferrer = (await storage.getItem<string>(RAW_REFERRER_KEY, "")) || "";
++  const result = await claimInstallReward(code, installReferrer);
++  if (result.ok) {
++    await storage.removeItem(PROOF_KEY);
++    await storage.removeItem(CODE_KEY);
++    await storage.removeItem(RAW_REFERRER_KEY);
++  }
++  return result;
++}

@@ -437,18 +437,11 @@ brand: { fontSize: font.xl, color: colors.brand, fontWeight: "500" },
   sectionTitle: { color: colors.onSurface, fontSize: font.lg, fontWeight: "500" },
   sectionLink: { color: colors.brand, fontSize: font.base, fontWeight: "500" },
   categoryGrid: {
-  flexDirection: "row",
-  flexWrap: "wrap",
-  justifyContent: "space-between",
-  paddingHorizontal: 10,
-},
-
-categoryGrid: {
-  flexDirection: "row",
-  flexWrap: "wrap",
-  justifyContent: "space-between",
-  paddingHorizontal: 10,
-},
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "space-between",
+    paddingHorizontal: 10,
+  },
 
 categoryCard: {
   width: "31.5%",

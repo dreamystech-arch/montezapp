@@ -40,3 +40,11 @@ Android mobile app that mirrors the customer-facing experience of www.montezinfo
 
 ## Non-goals
 - No native admin dashboard in the app; admin controls the CMS via the website (or by PUT-ing to `/api/mobile/cms` with `X-Admin-Token`)
+
+## 2026-08-15 — Deployment Build Fix
+- EAS/APK build was failing at `yarn install --frozen-lockfile` because `react-native-play-install-referrer@2.0.1` was in package.json but missing from yarn.lock. Regenerated yarn.lock via `yarn install` — frozen-lockfile now passes.
+- Renamed `assets/images/fevicon.png` → `favicon.png` to match app.json web.favicon path.
+- Added `/health` endpoint (200 {"status":"ok"}) to backend/server.py for K8s health probes.
+- Fixed duplicate `categoryGrid` StyleSheet key in app/(tabs)/home.tsx (lint error).
+- Verified: expo_release_build_ok=true, dependency_manifests_valid=true, expo_backend_reachable=true, compilation_passed=true.
+- Remaining deployment-agent flags are security-hardening policy items (upstream URL by design, admin token fallback, .gitignore) — not build blockers; previous production deployment succeeded with them.
