@@ -62,30 +62,26 @@ export function DashboardShell<Key extends string>({
         </TouchableOpacity>
       </View>
 
-      {/* Menu chip row */}
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.menuRow}
-        style={styles.menuScroll}
-        testID={`${user.role}-menu-row`}
-      >
+      {/* Main options stay visible in a two-column icon grid. */}
+      <View style={styles.menuGrid} testID={`${user.role}-menu-row`}>
         {menu.map((m) => {
           const isActive = m.key === active;
           return (
             <TouchableOpacity
               key={m.key}
               onPress={() => onSelect(m.key)}
-              style={[styles.chip, isActive && styles.chipActive]}
+              style={[styles.menuTile, isActive && styles.menuTileActive]}
               activeOpacity={0.85}
               testID={`menu-${user.role}-${m.key}`}
             >
-              <Ionicons name={m.icon} size={14} color={isActive ? "#FFFFFF" : colors.onSurfaceSecondary} />
-              <Text style={[styles.chipText, isActive && styles.chipTextActive]}>{m.label}</Text>
+              <View style={[styles.menuIconWrap, isActive && styles.menuIconWrapActive]}>
+                <Ionicons name={m.icon} size={20} color={isActive ? "#FFFFFF" : colors.brand} />
+              </View>
+              <Text numberOfLines={2} style={[styles.menuLabel, isActive && styles.menuLabelActive]}>{m.label}</Text>
             </TouchableOpacity>
           );
         })}
-      </ScrollView>
+      </View>
 
       {/* Page container */}
       <View style={{ flex: 1 }}>{children}</View>
@@ -414,28 +410,40 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.xs,
   },
   logoutText: { color: colors.brand, fontWeight: "500", fontSize: font.sm },
-  menuScroll: { flexGrow: 0 },
-  menuRow: {
+  menuGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "space-between",
     paddingHorizontal: spacing.lg,
-    gap: spacing.sm,
-    alignItems: "center",
     paddingVertical: spacing.sm,
+    rowGap: spacing.sm,
   },
-  chip: {
+  menuTile: {
+    width: "48.5%",
+    minHeight: 68,
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
-    paddingHorizontal: spacing.md,
-    paddingVertical: 8,
-    borderRadius: radius.pill,
+    gap: spacing.sm,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.md,
     borderWidth: 1,
     borderColor: colors.border,
-    backgroundColor: colors.surface,
-    flexShrink: 0,
+    backgroundColor: colors.surfaceSecondary,
+    ...shadow.card,
   },
-  chipActive: { backgroundColor: colors.brand, borderColor: colors.brand },
-  chipText: { fontSize: font.sm, color: colors.onSurfaceSecondary, fontWeight: "500" },
-  chipTextActive: { color: "#FFFFFF" },
+  menuTileActive: { backgroundColor: colors.brandTint, borderColor: colors.brand },
+  menuIconWrap: {
+    width: 38,
+    height: 38,
+    borderRadius: radius.md,
+    backgroundColor: colors.surface,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  menuIconWrapActive: { backgroundColor: colors.brand },
+  menuLabel: { flex: 1, fontSize: font.sm, lineHeight: 16, color: colors.onSurface, fontWeight: "600" },
+  menuLabelActive: { color: colors.brandDark },
   profile: {
     flexDirection: "row",
     alignItems: "center",

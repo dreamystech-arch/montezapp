@@ -57,7 +57,7 @@ export function WalletPage() {
           <View style={styles.balanceCard}>
             <Text style={styles.eyebrow}>AVAILABLE BALANCE</Text>
             <Text style={styles.balance}>{money(snapshot.balance)}</Text>
-            <Text style={styles.helper}>Withdrawable: {money(snapshot.withdrawableBalance)}</Text>
+            <Text style={styles.helper}><Text style={[styles.helper, { color: "#FFFFFF" }]}>Withdrawable: {money(snapshot.withdrawableBalance)}</Text> {money(snapshot.withdrawableBalance)}</Text>
             {snapshot.mockBalance > 0 ? <Text style={styles.mockNote}>Includes {money(snapshot.mockBalance)} in test credits. Test credits cannot be withdrawn.</Text> : null}
           </View>
 
