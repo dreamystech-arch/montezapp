@@ -187,6 +187,7 @@ export default function HomeScreen() {
           </View>
         }
         renderItem={({ item }) => <ProductCard product={item} />}
+        ListFooterComponent={<SiteFooter />}
         ListEmptyComponent={
           loading ? (
             <View style={{ paddingVertical: spacing.xxxl, alignItems: "center" }}>

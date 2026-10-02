@@ -1,0 +1,22 @@
+--- a/frontend/src/components/dashboards/WalletPage.tsx
++++ b/frontend/src/components/dashboards/WalletPage.tsx
+@@ -154,7 +154,7 @@ const styles = StyleSheet.create({
+   balanceCard: { marginHorizontal: spacing.lg, marginBottom: spacing.md, borderRadius: radius.lg, backgroundColor: colors.brand, padding: spacing.lg },
+   eyebrow: { color: "#FFFFFFB3", fontSize: 11, letterSpacing: 1.1, fontWeight: "600" },
+   balance: { color: "#FFFFFF", fontSize: 34, fontWeight: "700", marginTop: spacing.xs },
+-  balanceHelper: { color: "#FFE8E8", fontSize: 13, lineHeight: 19, marginTop: spacing.xs },
++  balanceHelper: { color: "#FFFFFF", fontSize: 13, lineHeight: 19, marginTop: spacing.xs },
+   helper: { color: colors.onSurfaceSecondary, fontSize: 13, lineHeight: 19, marginTop: spacing.xs },
+   mockNote: { color: "#FFF0C2", fontSize: 12, lineHeight: 17, marginTop: spacing.xs },
+   card: { marginHorizontal: spacing.lg, marginBottom: spacing.md, borderRadius: radius.md, backgroundColor: colors.surface, padding: spacing.md, borderWidth: 1, borderColor: colors.border },
+--- a/montezapp-wallet-updated/frontend/src/components/dashboards/WalletPage.tsx
++++ b/montezapp-wallet-updated/frontend/src/components/dashboards/WalletPage.tsx
+@@ -154,7 +154,7 @@ const styles = StyleSheet.create({
+   balanceCard: { marginHorizontal: spacing.lg, marginBottom: spacing.md, borderRadius: radius.lg, backgroundColor: colors.brand, padding: spacing.lg },
+   eyebrow: { color: "#FFFFFFB3", fontSize: 11, letterSpacing: 1.1, fontWeight: "600" },
+   balance: { color: "#FFFFFF", fontSize: 34, fontWeight: "700", marginTop: spacing.xs },
+-  balanceHelper: { color: "#FFE8E8", fontSize: 13, lineHeight: 19, marginTop: spacing.xs },
++  balanceHelper: { color: "#FFFFFF", fontSize: 13, lineHeight: 19, marginTop: spacing.xs },
+   helper: { color: colors.onSurfaceSecondary, fontSize: 13, lineHeight: 19, marginTop: spacing.xs },
+   mockNote: { color: "#FFF0C2", fontSize: 12, lineHeight: 17, marginTop: spacing.xs },
+   card: { marginHorizontal: spacing.lg, marginBottom: spacing.md, borderRadius: radius.md, backgroundColor: colors.surface, padding: spacing.md, borderWidth: 1, borderColor: colors.border },

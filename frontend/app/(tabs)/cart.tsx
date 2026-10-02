@@ -15,7 +15,7 @@ import { useRouter } from "expo-router";
 
 import { useApp } from "@/src/context/AppContext";
 import { useCart } from "@/src/context/CartContext";
-import { checkoutWithWallet, fetchWallet } from "@/src/api";
+import { checkoutWithWallet, fetchCart, fetchWallet } from "@/src/api";
 import type { WalletSnapshot } from "@/src/api/types";
 import { colors, font, radius, shadow, spacing } from "@/src/theme";
 
@@ -26,13 +26,19 @@ export default function CartScreen() {
 
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [checkingOut, setCheckingOut] = useState(false);
+  const [walletCheckoutPaid, setWalletCheckoutPaid] = useState(false);
   const [banner, setBanner] = useState<string | null>(null);
+  const [bannerIsError, setBannerIsError] = useState(false);
   const [wallet, setWallet] = useState<WalletSnapshot | null>(null);
 
   useEffect(() => {
     if (!user) return;
     fetchWallet().then(setWallet).catch(() => setWallet(null));
   }, [user?.id]);
+
+  useEffect(() => {
+    if (cart.items.length === 0) setWalletCheckoutPaid(false);
+  }, [cart.items.length]);
 
   const onQty = useCallback(
     async (productId: string, next: number) => {
@@ -54,12 +60,14 @@ export default function CartScreen() {
   const onCheckout = useCallback(async () => {
     setCheckingOut(true);
     setBanner(null);
+    setBannerIsError(false);
     try {
       const res = await checkout();
       const ref = res?.orderId ?? res?.id;
       setBanner(ref ? `Order placed (ref: ${String(ref).slice(0, 8)}).` : "Order placed.");
     } catch (e: any) {
       setBanner(e?.message ?? "Checkout failed. Please try again.");
+      setBannerIsError(true);
     } finally {
       setCheckingOut(false);
     }
@@ -68,16 +76,45 @@ export default function CartScreen() {
   const onWalletCheckout = useCallback(async () => {
     setCheckingOut(true);
     setBanner(null);
+    setBannerIsError(false);
+
     try {
-      const res = await checkoutWithWallet();
+      const latestCart = await fetchCart();
+
+      if (!latestCart.items.length) {
+        await refresh();
+        throw new Error("Your cart could not be synced. Refresh it and try again.");
+      }
+
+      const res = await checkoutWithWallet(latestCart.items);
+      setWalletCheckoutPaid(true);
       setBanner(`Order ${res.order.number} paid from your wallet.`);
-      await Promise.all([refresh(), fetchWallet().then(setWallet)]);
+
+      try {
+        for (const item of latestCart.items) {
+          const productId = String(item.productId ?? item.id ?? "");
+          if (!productId) {
+            throw new Error("A purchased cart item has no product ID.");
+          }
+          await removeItem(productId);
+        }
+        await refresh();
+      } catch {
+        await refresh();
+        setBanner(
+          `Order ${res.order.number} was paid, but the cart could not be cleared. Remove the item manually and do not pay for it again.`,
+        );
+        setBannerIsError(true);
+      }
+
+      await fetchWallet().then(setWallet);
     } catch (e: any) {
       setBanner(e?.message ?? "Wallet checkout failed. Please try again.");
+      setBannerIsError(true);
     } finally {
       setCheckingOut(false);
     }
-  }, [refresh]);
+  }, [refresh, removeItem]);
 
   if (!user) {
     return (
@@ -88,7 +125,9 @@ export default function CartScreen() {
         <View style={styles.empty}>
           <Ionicons name="lock-closed-outline" size={40} color={colors.brand} />
           <Text style={styles.emptyTitle}>Sign in to view your cart</Text>
-          <Text style={styles.emptyHint}>Your saved items and orders live with your account.</Text>
+          <Text style={styles.emptyHint}>
+            Your saved items and orders live with your account.
+          </Text>
           <TouchableOpacity
             style={styles.cta}
             onPress={() => router.push("/(tabs)/account")}
@@ -114,26 +153,46 @@ export default function CartScreen() {
 
       <ScrollView
         contentContainerStyle={{ padding: spacing.lg, paddingBottom: 140 }}
-        refreshControl={<RefreshControl refreshing={loading} onRefresh={refresh} tintColor={colors.brand} />}
+        refreshControl={
+          <RefreshControl
+            refreshing={loading}
+            onRefresh={refresh}
+            tintColor={colors.brand}
+          />
+        }
       >
         {banner ? (
-          <View style={styles.banner} testID="cart-banner">
+          <View
+            style={[styles.banner, bannerIsError && styles.bannerError]}
+            testID="cart-banner"
+          >
             <Text style={styles.bannerText}>{banner}</Text>
           </View>
         ) : null}
+
         {error ? (
-          <View style={[styles.banner, { backgroundColor: "#FEE2E2", borderColor: "#FCA5A5" }]}>
+          <View
+            style={[
+              styles.banner,
+              { backgroundColor: "#FEE2E2", borderColor: "#FCA5A5" },
+            ]}
+          >
             <Text style={[styles.bannerText, { color: "#B91C1C" }]}>{error}</Text>
           </View>
         ) : null}
 
         {loading && items.length === 0 ? (
-          <ActivityIndicator color={colors.brand} style={{ marginVertical: spacing.xxl }} />
+          <ActivityIndicator
+            color={colors.brand}
+            style={{ marginVertical: spacing.xxl }}
+          />
         ) : items.length === 0 ? (
           <View style={styles.empty} testID="cart-empty">
             <Ionicons name="cart-outline" size={40} color={colors.brand} />
             <Text style={styles.emptyTitle}>Your cart is empty</Text>
-            <Text style={styles.emptyHint}>Browse products and add items to see them here.</Text>
+            <Text style={styles.emptyHint}>
+              Browse products and add items to see them here.
+            </Text>
             <TouchableOpacity
               style={styles.cta}
               onPress={() => router.push("/(tabs)/products")}
@@ -145,21 +204,39 @@ export default function CartScreen() {
         ) : (
           items.map((it, i) => {
             const pid = String(it.productId ?? it.id ?? it.slug ?? i);
-            const line = (Number(it.price) || 0) * (it.quantity ?? 0);
+            const unitPrice =
+              Number(it.price) ||
+              Number(String(it.price ?? "").replace(/[^\d.]/g, "")) ||
+              Number(it.priceFrom) ||
+              0;
+            const line = unitPrice * (it.quantity ?? 0);
+
             return (
               <View key={pid} style={styles.row} testID={`cart-item-${pid}`}>
                 {it.image ? (
-                  <Image source={{ uri: it.image }} style={styles.thumb} resizeMode="cover" />
+                  <Image
+                    source={{ uri: it.image }}
+                    style={styles.thumb}
+                    resizeMode="cover"
+                  />
                 ) : (
-                  <View style={[styles.thumb, { backgroundColor: colors.surfaceTertiary }]} />
+                  <View
+                    style={[
+                      styles.thumb,
+                      { backgroundColor: colors.surfaceTertiary },
+                    ]}
+                  />
                 )}
+
                 <View style={{ flex: 1 }}>
                   <Text style={styles.name} numberOfLines={2}>
                     {it.name ?? it.slug ?? "Item"}
                   </Text>
+
                   <Text style={styles.price}>
                     ₹{it.price ?? "—"} × {it.quantity} = ₹{line || "—"}
                   </Text>
+
                   <View style={styles.qtyRow}>
                     <TouchableOpacity
                       style={styles.qtyBtn}
@@ -169,7 +246,14 @@ export default function CartScreen() {
                     >
                       <Ionicons name="remove" size={16} color={colors.brand} />
                     </TouchableOpacity>
-                    <Text style={styles.qtyText} testID={`cart-item-${pid}-qty`}>{it.quantity}</Text>
+
+                    <Text
+                      style={styles.qtyText}
+                      testID={`cart-item-${pid}-qty`}
+                    >
+                      {it.quantity}
+                    </Text>
+
                     <TouchableOpacity
                       style={styles.qtyBtn}
                       onPress={() => onQty(pid, (it.quantity ?? 0) + 1)}
@@ -178,13 +262,18 @@ export default function CartScreen() {
                     >
                       <Ionicons name="add" size={16} color={colors.brand} />
                     </TouchableOpacity>
+
                     <TouchableOpacity
                       style={styles.remove}
                       onPress={() => onQty(pid, 0)}
                       disabled={busyKey === pid}
                       testID={`cart-item-${pid}-remove`}
                     >
-                      <Ionicons name="trash-outline" size={14} color={colors.error} />
+                      <Ionicons
+                        name="trash-outline"
+                        size={14}
+                        color={colors.error}
+                      />
                       <Text style={styles.removeText}>Remove</Text>
                     </TouchableOpacity>
                   </View>
@@ -203,6 +292,7 @@ export default function CartScreen() {
               ₹{cart.subtotal ?? 0}
             </Text>
           </View>
+
           <TouchableOpacity
             style={[styles.checkout, checkingOut && { opacity: 0.7 }]}
             onPress={onCheckout}
@@ -219,20 +309,38 @@ export default function CartScreen() {
               </>
             )}
           </TouchableOpacity>
+
           <Text style={styles.walletHint}>
-            Wallet balance: ₹{Number(wallet?.balance ?? 0).toLocaleString("en-IN")}
+            Wallet balance: ₹
+            {Number(wallet?.balance ?? 0).toLocaleString("en-IN")}
           </Text>
+
           <TouchableOpacity
-            style={[styles.walletCheckout, (checkingOut || !wallet || wallet.balance < Number(cart.subtotal ?? 0)) && { opacity: 0.5 }]}
+            style={[
+              styles.walletCheckout,
+              (checkingOut ||
+                walletCheckoutPaid ||
+                !wallet ||
+                wallet.balance < Number(cart.subtotal ?? 0)) && { opacity: 0.5 },
+            ]}
             onPress={onWalletCheckout}
-            disabled={checkingOut || !wallet || wallet.balance < Number(cart.subtotal ?? 0)}
+            disabled={
+              checkingOut ||
+              walletCheckoutPaid ||
+              !wallet ||
+              wallet.balance < Number(cart.subtotal ?? 0)
+            }
             activeOpacity={0.9}
             testID="cart-wallet-checkout-button"
           >
-            {checkingOut ? <ActivityIndicator color="#FFFFFF" /> : <>
-              <Ionicons name="wallet-outline" size={18} color="#FFFFFF" />
-              <Text style={styles.checkoutText}>Pay with Wallet</Text>
-            </>}
+            {checkingOut ? (
+              <ActivityIndicator color="#FFFFFF" />
+            ) : (
+              <>
+                <Ionicons name="wallet-outline" size={18} color="#FFFFFF" />
+                <Text style={styles.checkoutText}>Pay with Wallet</Text>
+              </>
+            )}
           </TouchableOpacity>
         </View>
       ) : null}
@@ -253,14 +361,24 @@ const styles = StyleSheet.create({
     borderColor: "#A7F3D0",
     marginBottom: spacing.md,
   },
+  bannerError: { backgroundColor: "#FEF2F2", borderColor: "#FCA5A5" },
   bannerText: { color: colors.success, fontSize: font.base, fontWeight: "500" },
   empty: {
     alignItems: "center",
     padding: spacing.xxl,
     gap: spacing.sm,
   },
-  emptyTitle: { color: colors.onSurface, fontSize: font.lg, fontWeight: "500", marginTop: spacing.md },
-  emptyHint: { color: colors.muted, fontSize: font.base, textAlign: "center" },
+  emptyTitle: {
+    color: colors.onSurface,
+    fontSize: font.lg,
+    fontWeight: "500",
+    marginTop: spacing.md,
+  },
+  emptyHint: {
+    color: colors.muted,
+    fontSize: font.base,
+    textAlign: "center",
+  },
   cta: {
     marginTop: spacing.md,
     backgroundColor: colors.brand,
@@ -280,10 +398,20 @@ const styles = StyleSheet.create({
     marginBottom: spacing.sm,
     ...shadow.card,
   },
-  thumb: { width: 72, height: 72, borderRadius: radius.sm, backgroundColor: colors.surfaceTertiary },
+  thumb: {
+    width: 72,
+    height: 72,
+    borderRadius: radius.sm,
+    backgroundColor: colors.surfaceTertiary,
+  },
   name: { fontSize: font.base, color: colors.onSurface, fontWeight: "500" },
   price: { fontSize: font.sm, color: colors.brand, marginTop: 2 },
-  qtyRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm, marginTop: spacing.sm },
+  qtyRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+  },
   qtyBtn: {
     width: 28,
     height: 28,
@@ -293,8 +421,19 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  qtyText: { minWidth: 24, textAlign: "center", fontSize: font.base, color: colors.onSurface, fontWeight: "500" },
-  remove: { flexDirection: "row", alignItems: "center", gap: 4, marginLeft: "auto" },
+  qtyText: {
+    minWidth: 24,
+    textAlign: "center",
+    fontSize: font.base,
+    color: colors.onSurface,
+    fontWeight: "500",
+  },
+  remove: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    marginLeft: "auto",
+  },
   removeText: { color: colors.error, fontSize: font.sm, fontWeight: "500" },
   footer: {
     position: "absolute",
@@ -307,7 +446,11 @@ const styles = StyleSheet.create({
     borderTopColor: colors.border,
     ...shadow.card,
   },
-  totalRow: { flexDirection: "row", justifyContent: "space-between", marginBottom: spacing.md },
+  totalRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: spacing.md,
+  },
   totalLabel: { fontSize: font.base, color: colors.muted },
   totalValue: { fontSize: font.xl, color: colors.brand, fontWeight: "500" },
   checkout: {
@@ -320,6 +463,20 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   checkoutText: { color: "#FFFFFF", fontSize: font.lg, fontWeight: "500" },
-  walletHint: { color: colors.onSurfaceSecondary, textAlign: "center", fontSize: font.sm, marginTop: spacing.sm },
-  walletCheckout: { marginTop: spacing.sm, minHeight: 52, borderRadius: radius.md, backgroundColor: colors.success, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: spacing.sm },
+  walletHint: {
+    color: colors.onSurfaceSecondary,
+    textAlign: "center",
+    fontSize: font.sm,
+    marginTop: spacing.sm,
+  },
+  walletCheckout: {
+    marginTop: spacing.sm,
+    minHeight: 52,
+    borderRadius: radius.md,
+    backgroundColor: colors.success,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing.sm,
+  },
 });

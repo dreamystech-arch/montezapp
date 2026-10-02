@@ -312,11 +312,29 @@ export async function fetchWalletPayouts() {
   return res.items ?? [];
 }
 
-export async function checkoutWithWallet() {
+export async function checkoutWithWallet(items: CartItem[]) {
   return upstream<{ ok: boolean; order: { id: string; number: string; totals: { total: number } }; wallet: WalletSnapshot }>(
     "/api/wallet/checkout",
-    { method: "POST", withAuth: true, body: JSON.stringify({}) },
+    {
+      method: "POST",
+      withAuth: true,
+      body: JSON.stringify({
+        items: items.map((item) => ({
+          productId: item.productId ?? item.id,
+          slug: item.slug,
+          quantity: item.quantity,
+        })),
+      }),
+    },
   );
+}
+
+export async function clearCart() {
+  const raw = await localAuthed<any>("/api/me/cart/clear", {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+  return normaliseCart(raw);
 }
 
 // ---------------------------------------------------------------------------
@@ -457,7 +475,7 @@ export async function fetchMobileCMS(): Promise<MobileCMS> {
     fetchUpstreamCMS<{ items?: UpstreamWelcomeItem[] }>("/api/cms/welcome"),
     // Footer: upstream first, then local supplementary.
     fetchUpstreamCMS<Footer>("/api/cms/footer").then((r) =>
-      r && (r.about || r.quickLinks || r.contactColumns || r.socials || r.copyright) ? r : null,
+      r && (r.about || r.quickLinks || r.policyLinks || r.storeBadges || r.contactColumns || r.socials || r.copyright) ? r : null,
     ),
     fetchUpstreamCMS<{
       settings?: {
@@ -474,8 +492,18 @@ export async function fetchMobileCMS(): Promise<MobileCMS> {
   ]);
 
   const localFooter = await fetchLocalCMS<Footer>("/api/cms/footer");
-  const resolvedFooter: Footer | undefined =
-    footer ?? appSettings?.settings?.footer ?? localFooter ?? legacy?.footer;
+  // The dedicated App Settings footer is the app's editable source of truth.
+  // Prefer it over the older shared website CMS footer so stale policy/contact
+  // content there cannot overwrite current app footer settings.
+  const footerSource = appSettings?.settings?.footer ?? footer ?? localFooter ?? legacy?.footer;
+  const resolvedFooter: Footer | undefined = footerSource ? {
+    ...footerSource,
+    storeBadges: footerSource.storeBadges ? {
+      ...footerSource.storeBadges,
+      playStoreImage: absolutiseMediaUrl(footerSource.storeBadges.playStoreImage),
+      appStoreImage: absolutiseMediaUrl(footerSource.storeBadges.appStoreImage),
+    } : undefined,
+  } : undefined;
 
   const appLogoUrl = appSettings?.settings?.logo?.url;
   const siteLogoUrl = siteSettings?.settings?.logoUrl;
@@ -521,8 +549,8 @@ export async function fetchMobileCMS(): Promise<MobileCMS> {
     upstreamBanners.length > 0
       ? upstreamBanners
       : appSettingsBanners.length > 0
-      ? appSettingsBanners
-      : legacyBanners;
+        ? appSettingsBanners
+        : legacyBanners;
 
   const splashImage =
     pickString(

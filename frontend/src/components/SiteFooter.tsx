@@ -6,10 +6,20 @@ import { useApp } from "@/src/context/AppContext";
 import { UPSTREAM_BASE } from "@/src/api/client";
 import { colors, font, radius, spacing } from "@/src/theme";
 
+const DEFAULT_MENU_LINKS = [
+  { label: "About Us", href: "https://montezinfobyte.com/about" },
+  { label: "Contact", href: "https://montezinfobyte.com/contact" },
+  { label: "Privacy Policy", href: "https://montezinfobyte.com/legal/privacy" },
+  { label: "Terms of Service", href: "https://montezinfobyte.com/legal/terms" },
+  { label: "Shipping Policy", href: "https://montezinfobyte.com/legal/shipping" },
+  { label: "Return, Refund & Cancellation policy", href: "https://montezinfobyte.com/legal/refund" },
+  { label: "Data Deletion Policy", href: "https://montezinfobyte.com/legal/data-deletion" },
+];
+
 const openHref = (href?: string) => {
   if (!href) return;
   const target = href.startsWith("/") ? `${UPSTREAM_BASE}${href}` : href;
-  Linking.openURL(target).catch(() => {});
+  Linking.openURL(target).catch(() => { });
 };
 
 /**
@@ -20,17 +30,23 @@ const openHref = (href?: string) => {
 export function SiteFooter({ testID = "site-footer" }: { testID?: string }) {
   const { cms, settings } = useApp();
   const footer = cms?.footer;
+  const menuLinks = footer?.policyLinks?.length ? footer.policyLinks : DEFAULT_MENU_LINKS;
   const logo = cms?.appLogo || settings?.logoUrl;
 
   const hasAnyContent =
     !!footer?.about ||
-    (footer?.quickLinks?.length ?? 0) > 0 ||
-    (footer?.policyLinks?.length ?? 0) > 0 ||
+    menuLinks.length > 0 ||
     !!footer?.storeBadges?.playStoreUrl ||
     !!footer?.storeBadges?.appStoreUrl ||
-    (footer?.contactColumns?.length ?? 0) > 0 ||
-    (footer?.socials?.length ?? 0) > 0 ||
-    !!footer?.copyright;
+    !!settings?.address ||
+    !!settings?.email ||
+    !!settings?.phone;
+
+  const contactLines = [
+    settings?.address ? `Address: ${settings.address}` : "",
+    settings?.phone ? `Phone: ${settings.phone}` : "",
+    settings?.email ? `Email: ${settings.email}` : "",
+  ].filter(Boolean);
 
   if (!hasAnyContent) return null;
 
@@ -54,8 +70,8 @@ export function SiteFooter({ testID = "site-footer" }: { testID?: string }) {
           <View style={styles.downloadHeading}>
             <View style={styles.downloadIcon}><Ionicons name="phone-portrait-outline" size={17} color="#FFFFFF" /></View>
             <View style={styles.downloadCopy}>
-              <Text style={styles.downloadTitle}>Take Montez with you</Text>
-              <Text style={styles.downloadSubtitle}>Shop and connect wherever you are.</Text>
+              <Text style={styles.downloadTitle}>Take Montez with you Shop and connect wherever you are.</Text>
+              
             </View>
           </View>
           <View style={styles.badgeRow}>
@@ -73,11 +89,11 @@ export function SiteFooter({ testID = "site-footer" }: { testID?: string }) {
         </View>
       ) : null}
 
-      {footer?.policyLinks && footer.policyLinks.length > 0 ? (
+      {menuLinks.length > 0 ? (
         <View style={styles.section} testID="footer-policies">
-          <Text style={styles.sectionTitle}>Policies</Text>
+          <Text style={styles.sectionTitle}>Menu</Text>
           <View style={styles.policiesRow}>
-            {footer.policyLinks.map((l) => (
+            {menuLinks.map((l) => (
               <TouchableOpacity
                 key={`${l.label}-${l.href}`}
                 onPress={() => openHref(l.href)}
@@ -93,59 +109,13 @@ export function SiteFooter({ testID = "site-footer" }: { testID?: string }) {
         </View>
       ) : null}
 
-      {footer?.quickLinks && footer.quickLinks.length > 0 ? (
-        <View style={styles.section} testID="footer-quick-links">
-          <Text style={styles.sectionTitle}>Quick Links</Text>
-          {footer.quickLinks.map((l) => (
-            <TouchableOpacity
-              key={`${l.label}-${l.href}`}
-              onPress={() => openHref(l.href)}
-              style={styles.linkRow}
-              activeOpacity={0.7}
-              testID={`footer-link-${l.label.toLowerCase().replace(/\s+/g, "-")}`}
-            >
-              <Ionicons name="chevron-forward" size={12} color={colors.brand} />
-              <Text style={styles.linkText}>{l.label}</Text>
-            </TouchableOpacity>
+      {contactLines.length > 0 ? (
+        <View style={styles.section} testID="footer-contact">
+          <Text style={styles.sectionTitle}>Contact</Text>
+          {contactLines.map((line) => (
+            <Text key={line} style={styles.contactLine}>{line}</Text>
           ))}
         </View>
-      ) : null}
-
-      {footer?.contactColumns?.map((col, i) => (
-        <View style={styles.section} key={`${col.title}-${i}`} testID={`footer-column-${col.title.toLowerCase().replace(/\s+/g, "-")}`}>
-          <Text style={styles.sectionTitle}>{col.title}</Text>
-          {(col.lines ?? []).map((line, idx) => (
-            <Text key={idx} style={styles.contactLine}>
-              {line}
-            </Text>
-          ))}
-        </View>
-      ))}
-
-      {footer?.socials && footer.socials.length > 0 ? (
-        <View style={styles.socialsRow} testID="footer-socials">
-          {footer.socials.map((s) => (
-            <TouchableOpacity
-              key={`${s.label}-${s.href}`}
-              onPress={() => openHref(s.href)}
-              style={styles.socialBtn}
-              activeOpacity={0.7}
-              testID={`footer-social-${s.label.toLowerCase()}`}
-            >
-              <Ionicons
-                name={(s.icon as any) || "globe-outline"}
-                size={18}
-                color={colors.brand}
-              />
-            </TouchableOpacity>
-          ))}
-        </View>
-      ) : null}
-
-      {footer?.copyright ? (
-        <Text style={styles.copyright} testID="footer-copyright">
-          {footer.copyright}
-        </Text>
       ) : null}
     </View>
   );
@@ -157,7 +127,7 @@ const styles = StyleSheet.create({
     marginHorizontal: spacing.lg,
     padding: spacing.xl,
     borderRadius: radius.lg,
-    backgroundColor: "#171923",
+    backgroundColor: "#940a0a",
     borderWidth: 1,
     borderColor: "#282A36",
   },
@@ -202,8 +172,8 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
   },
   downloadCard: {
-    backgroundColor: "#222430",
-    borderColor: "#343644",
+    backgroundColor: "#940a0a",
+    borderColor: "#FFFFFF",
     borderWidth: 1,
     borderRadius: radius.md,
     padding: spacing.md,
@@ -223,7 +193,7 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: radius.pill,
-    backgroundColor: "#292B38",
+    backgroundColor: "#e1752d",
     alignItems: "center",
     justifyContent: "center",
   },

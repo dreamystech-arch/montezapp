@@ -3,6 +3,7 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useS
 import {
   addToCart as apiAddToCart,
   checkoutCart as apiCheckout,
+  clearCart as apiClearCart,
   fetchCart,
   removeCartItem as apiRemoveCartItem,
   updateCartItem as apiUpdateCartItem,
@@ -18,6 +19,7 @@ type CartContextValue = {
   addToCart: (args: { productId?: string; slug?: string; quantity?: number }) => Promise<void>;
   updateItem: (productId: string, quantity: number) => Promise<void>;
   removeItem: (productId: string) => Promise<void>;
+  clear: () => Promise<void>;
   checkout: () => Promise<{ id?: string; orderId?: string } | null>;
 };
 
@@ -36,6 +38,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
       setError(null);
       return;
     }
+
     setLoading(true);
     setError(null);
     try {
@@ -73,23 +76,38 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     setCart(next);
   }, []);
 
+  const clear = useCallback(async () => {
+    setError(null);
+    setCart(await apiClearCart());
+  }, []);
+
   const checkout = useCallback(async () => {
     setError(null);
-    const res = await apiCheckout();
+    const result = await apiCheckout();
     await refresh();
-    return res ?? null;
+    return result ?? null;
   }, [refresh]);
 
   const value = useMemo(
-    () => ({ cart, loading, error, refresh, addToCart, updateItem, removeItem, checkout }),
-    [cart, loading, error, refresh, addToCart, updateItem, removeItem, checkout],
+    () => ({
+      cart,
+      loading,
+      error,
+      refresh,
+      addToCart,
+      updateItem,
+      removeItem,
+      clear,
+      checkout,
+    }),
+    [cart, loading, error, refresh, addToCart, updateItem, removeItem, clear, checkout],
   );
 
   return <CartContext.Provider value={value}>{children}</CartContext.Provider>;
 }
 
 export function useCart() {
-  const ctx = useContext(CartContext);
-  if (!ctx) throw new Error("useCart must be used within CartProvider");
-  return ctx;
+  const context = useContext(CartContext);
+  if (!context) throw new Error("useCart must be used within CartProvider");
+  return context;
 }

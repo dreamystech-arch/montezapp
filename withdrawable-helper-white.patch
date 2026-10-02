@@ -1,0 +1,6 @@
+diff --git a/frontend/src/components/dashboards/WalletPage.tsx b/frontend/src/components/dashboards/WalletPage.tsx
+--- a/frontend/src/components/dashboards/WalletPage.tsx
++++ b/frontend/src/components/dashboards/WalletPage.tsx
+@@ -60 +60 @@
+-            <Text style={styles.helper}>Withdrawable: {money(snapshot.withdrawableBalance)}</Text>
++            <Text style={[styles.helper, { color: "#FFFFFF" }]}>Withdrawable: {money(snapshot.withdrawableBalance)}</Text>
